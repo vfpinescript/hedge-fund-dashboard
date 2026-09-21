@@ -1,0 +1,22 @@
+{
+  "decision_tree": {
+    "mean_IC": -0.0317895154168596,
+    "IC_t_stat": -0.4518693272964649,
+    "n_instruments": 4
+  },
+  "random_forest": {
+    "mean_IC": -0.002756748864230238,
+    "IC_t_stat": -0.05955255938998101,
+    "n_instruments": 4
+  },
+  "gradient_boost": {
+    "mean_IC": -0.026373199685598408,
+    "IC_t_stat": -0.42000990274862965,
+    "n_instruments": 4
+  },
+  "lasso_factors": {
+    "mean_IC": -0.0036476019361258855,
+    "IC_t_stat": -0.042611011910391655,
+    "n_instruments": 4
+  }
+}
