@@ -3,95 +3,115 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hedge Fund v2 — Quant Desk</title>
+  <title>Meridian · Asset Management Desk</title>
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="logo"></div>
-      <div>
-        <div class="brand-name">Hedge Fund v2 <span class="brand-sub">· Quant Desk</span></div>
-        <div class="brand-desc">Systematic multi-asset research &amp; live signal committee</div>
+  <!-- COMMAND BAR -->
+  <header class="command-bar">
+    <div class="identity">
+      <div class="mark">M</div>
+      <div class="id-text">
+        <div class="bank">Meridian <span>Universal Bank</span></div>
+        <div class="division">Asset Management · Systematic Strategies Desk</div>
       </div>
     </div>
-    <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="strategies">Strategies</button>
-      <button class="tab" data-tab="live">Live Paper</button>
-      <button class="tab" data-tab="builder">Strategy Builder</button>
-      <button class="tab" data-tab="signals">Live Signals</button>
-      <button class="tab" data-tab="lab">Strategy Lab</button>
-      <button class="tab" data-tab="surfaces">3D Surfaces</button>
-    </nav>
-    <div class="topright">
-      <span class="live-pill"><span class="dot"></span>LIVE</span>
+    <div class="status-cluster">
+      <div class="stat"><label>Desk</label><span>Systematic</span></div>
+      <div class="stat"><label>Coverage</label><span>FX · Rates · Vol</span></div>
+      <div class="stat"><label>Engine</label><span class="pos">Nominal</span></div>
+      <div class="conn"><span class="dot"></span>LIVE</div>
     </div>
   </header>
 
-  <!-- STRATEGIES -->
-  <section class="view" id="view-strategies">
-    <aside class="strat-list" id="stratList"><div class="loading">Loading strategies…</div></aside>
-    <main class="strat-detail" id="stratDetail"><div class="loading">Select a strategy</div></main>
-  </section>
+  <div class="workspace">
+    <!-- NAV RAIL -->
+    <nav class="rail" id="tabs">
+      <div class="rail-label">Research</div>
+      <button class="tab active" data-tab="strategies">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 12l3.5-4 3 2.5L14 4"/><path d="M2 14h12"/></svg>Strategies</button>
+      <button class="tab" data-tab="signals">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 1.5"/></svg>Live Signals</button>
+      <button class="tab" data-tab="lab">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 2v4L3 12a1.5 1.5 0 001.4 2h7.2A1.5 1.5 0 0013 12l-3-6V2"/><path d="M5 2h6"/></svg>Strategy Lab</button>
+      <button class="tab" data-tab="surfaces">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 6l6-3 6 3-6 3-6-3z"/><path d="M2 10l6 3 6-3"/></svg>Quant Surfaces</button>
+      <div class="rail-label">Execution</div>
+      <button class="tab" data-tab="live">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 6h12M5 9h3"/></svg>Live Paper</button>
+      <button class="tab" data-tab="builder">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v12M2 8h12"/><circle cx="8" cy="8" r="6"/></svg>Strategy Builder</button>
+      <div class="rail-foot">Meridian AM · internal desk tool.<br>Simulated &amp; public-data figures only. Not investment advice.</div>
+    </nav>
 
-  <!-- LIVE SIGNALS -->
-  <section class="view hidden" id="view-signals">
-    <div class="signals-head">
-      <div>
-        <h2>Live Signal Committee</h2>
-        <p class="muted">Every calculation, computed live on real data. Agents that lack a data feed abstain rather than guess.</p>
-      </div>
-      <select id="signalInstrument" class="select"></select>
-    </div>
-    <div id="signalsBody"><div class="loading">Loading…</div></div>
-  </section>
+    <!-- CONTENT -->
+    <main class="content">
+      <!-- STRATEGIES -->
+      <section class="view" id="view-strategies">
+        <aside class="strat-list" id="stratList"><div class="loading">Loading strategy book…</div></aside>
+        <main class="strat-detail" id="stratDetail"><div class="loading">Select a strategy</div></main>
+      </section>
 
-  <!-- STRATEGY BUILDER -->
-  <section class="view hidden" id="view-builder">
-    <div class="signals-head">
-      <div>
-        <h2>Strategy Builder</h2>
-        <p class="muted">Point any strategy at any instrument — stock, ETF, bond, currency, crypto, commodity — and backtest it on the spot. The DSR flags whether a result is real or noise.</p>
-      </div>
-    </div>
-    <div id="builderBody"><div class="loading">Loading strategy library…</div></div>
-  </section>
+      <!-- LIVE SIGNALS -->
+      <section class="view hidden" id="view-signals">
+        <div class="signals-head">
+          <div>
+            <h2>Live Signal Committee</h2>
+            <p>Every calculation computed live on real data. Agents lacking a data feed abstain rather than guess; a weighted vote is subject to a risk veto.</p>
+          </div>
+          <select id="signalInstrument" class="select"></select>
+        </div>
+        <div id="signalsBody"><div class="loading">Loading…</div></div>
+      </section>
 
-  <!-- LIVE PAPER -->
-  <section class="view hidden" id="view-live">
-    <div class="signals-head">
-      <div>
-        <h2>Live Paper — FX Majors Reversal</h2>
-        <p class="muted">The DSR-robust strategy trading itself on TradingView paper, automated daily. Real forward out-of-sample results.</p>
-      </div>
-      <button id="liveRefresh" class="select" style="cursor:pointer">↻ Refresh</button>
-    </div>
-    <div id="liveBody"><div class="loading">Loading live paper account…</div></div>
-  </section>
+      <!-- STRATEGY BUILDER -->
+      <section class="view hidden" id="view-builder">
+        <div class="signals-head">
+          <div>
+            <h2>Strategy Builder</h2>
+            <p>Point any strategy at any instrument — equity, ETF, bond, currency, crypto, commodity — and backtest on the spot. The Deflated Sharpe Ratio flags whether a result is edge or noise.</p>
+          </div>
+        </div>
+        <div id="builderBody"><div class="loading">Loading strategy library…</div></div>
+      </section>
 
-  <!-- STRATEGY LAB -->
-  <section class="view hidden" id="view-lab">
-    <div class="signals-head">
-      <div>
-        <h2>Strategy Lab</h2>
-        <p class="muted">DSR-gated search over signal blends &amp; the Kalshi arbitrage scanner. The gate deflates every Sharpe by the number of trials — nothing is crowned unless it survives.</p>
-      </div>
-    </div>
-    <div id="labBody"><div class="loading">Loading…</div></div>
-  </section>
+      <!-- LIVE PAPER -->
+      <section class="view hidden" id="view-live">
+        <div class="signals-head">
+          <div>
+            <h2>Live Paper — FX Reversal Book</h2>
+            <p>The DSR-robust reversal strategy trading itself on a live paper account, rebalanced on schedule. Real forward out-of-sample results.</p>
+          </div>
+          <button id="liveRefresh" class="select" style="cursor:pointer">↻ Refresh</button>
+        </div>
+        <div id="liveBody"><div class="loading">Loading live paper account…</div></div>
+      </section>
 
-  <!-- 3D SURFACES -->
-  <section class="view hidden" id="view-surfaces">
-    <div class="signals-head">
-      <div>
-        <h2>Quant Surfaces</h2>
-        <p class="muted">Tail-exponent, volatility, gamma &amp; charm surfaces and the yield-curve decomposition — from the research library.</p>
-      </div>
-      <select id="surfInstrument" class="select"></select>
-    </div>
-    <div id="surfacesBody"><div class="loading">Computing surfaces…</div></div>
-  </section>
+      <!-- STRATEGY LAB -->
+      <section class="view hidden" id="view-lab">
+        <div class="signals-head">
+          <div>
+            <h2>Strategy Lab</h2>
+            <p>DSR-gated search over signal blends and the prediction-market arbitrage scanner. The gate deflates every Sharpe by the number of trials — nothing is crowned unless it survives.</p>
+          </div>
+        </div>
+        <div id="labBody"><div class="loading">Loading…</div></div>
+      </section>
+
+      <!-- QUANT SURFACES -->
+      <section class="view hidden" id="view-surfaces">
+        <div class="signals-head">
+          <div>
+            <h2>Quant Surfaces</h2>
+            <p>Tail-exponent, volatility, gamma and charm surfaces plus the yield-curve decomposition — from the research library.</p>
+          </div>
+          <select id="surfInstrument" class="select"></select>
+        </div>
+        <div id="surfacesBody"><div class="loading">Computing surfaces…</div></div>
+      </section>
+    </main>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

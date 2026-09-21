@@ -6,10 +6,10 @@ const fmtNum = v => (v==null||isNaN(v)) ? "–" : (v===Infinity?"∞":v.toFixed(
 const fmtInt = v => (v==null) ? "–" : Math.round(v);
 
 const PLOT_CFG = {displayModeBar:false, responsive:true};
-const axis = {gridcolor:"#1c1e24", zerolinecolor:"#2a2d35", tickfont:{size:11}, showline:false};
+const axis = {gridcolor:"#1e2530", zerolinecolor:"#2a3341", tickfont:{size:11}, showline:false};
 const baseLayout = extra => Object.assign({
   paper_bgcolor:"transparent", plot_bgcolor:"transparent",
-  font:{color:"#8a8f9a", family:"-apple-system,Inter,sans-serif"},
+  font:{color:"#7c8698", family:"-apple-system,Inter,sans-serif"},
   margin:{l:44,r:16,t:10,b:34}, xaxis:{...axis}, yaxis:{...axis}, showlegend:false, hovermode:"x unified"
 }, extra||{});
 
@@ -81,10 +81,10 @@ function gaugeSVG(score){
   const off=circ*(1-frac);
   return `<svg class="gauge-svg" viewBox="0 0 130 130">
     <path d="M 11 65 A 54 54 0 0 1 119 65" fill="none" stroke="#24262c" stroke-width="9" stroke-linecap="round"/>
-    <path d="M 11 65 A 54 54 0 0 1 119 65" fill="none" stroke="#4d7cfe" stroke-width="9"
+    <path d="M 11 65 A 54 54 0 0 1 119 65" fill="none" stroke="#6d97cf" stroke-width="9"
       stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${off}"/>
-    <text x="65" y="60" text-anchor="middle" fill="#e8eaf0" font-size="30" font-weight="750">${score}</text>
-    <text x="65" y="80" text-anchor="middle" fill="#8a8f9a" font-size="12">${score>=60?"Viable":score>=40?"Marginal":"Weak"}</text>
+    <text x="65" y="60" text-anchor="middle" fill="#e6eaf1" font-size="30" font-weight="750">${score}</text>
+    <text x="65" y="80" text-anchor="middle" fill="#7c8698" font-size="12">${score>=60?"Viable":score>=40?"Marginal":"Weak"}</text>
   </svg>`;
 }
 
@@ -124,10 +124,10 @@ function renderDetail(s){
 
   // equity
   const traces=[{x:s.equity.dates,y:s.equity.values,type:"scatter",mode:"lines",
-    line:{color:"#4d7cfe",width:2.4},fill:"tozeroy",fillcolor:"rgba(77,124,254,.08)",name:"Strategy"}];
+    line:{color:"#6d97cf",width:2.4},fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)",name:"Strategy"}];
   if(s.buyhold){ traces.push({x:s.buyhold.dates,y:s.buyhold.values,type:"scatter",mode:"lines",
-    name:"Buy & Hold",line:{color:"#8a8f9a",width:1.5,dash:"dash"}}); }
-  if(s.components){ const cols=["#f5b544","#1fc98a","#7a5bff","#f0526a","#39c0ed","#e879f9"];
+    name:"Buy & Hold",line:{color:"#7c8698",width:1.5,dash:"dash"}}); }
+  if(s.components){ const cols=["#cf9f45","#4fae82","#c6a15b","#d76b63","#6d97cf","#c6a15b"];
     Object.entries(s.components).forEach(([k,c],i)=>traces.push({x:c.dates,y:c.values,type:"scatter",
       mode:"lines",line:{color:cols[i%cols.length],width:1},opacity:.5,name:k})); }
   Plotly.newPlot("eqChart",traces,baseLayout({yaxis:{...axis,ticksuffix:"%"},showlegend:true,
@@ -138,22 +138,22 @@ function renderDetail(s){
 
   // drawdown
   Plotly.newPlot("ddChart",[{x:s.drawdown.dates,y:s.drawdown.values,type:"scatter",mode:"lines",
-    line:{color:"#f0526a",width:1},fill:"tozeroy",fillcolor:"rgba(240,82,106,.25)"}],
+    line:{color:"#d76b63",width:1},fill:"tozeroy",fillcolor:"rgba(215,107,99,.25)"}],
     baseLayout({yaxis:{...axis,ticksuffix:"%"}}),PLOT_CFG);
 
   // rolling sharpe
   Plotly.newPlot("rsChart",[{x:s.rolling_sharpe.dates,y:s.rolling_sharpe.values,type:"scatter",
-    mode:"lines",line:{color:"#f5b544",width:1.3}}],
+    mode:"lines",line:{color:"#cf9f45",width:1.3}}],
     baseLayout({shapes:[{type:"line",x0:s.rolling_sharpe.dates[0],x1:s.rolling_sharpe.dates.slice(-1)[0],
-      y0:1,y1:1,line:{color:"#4d7cfe",width:1,dash:"dash"}}]}),PLOT_CFG);
+      y0:1,y1:1,line:{color:"#6d97cf",width:1,dash:"dash"}}]}),PLOT_CFG);
 
   // trade donut
   if(s.trades){
     Plotly.newPlot("tradeChart",[{values:[s.trades.long,s.trades.short],labels:["Long","Short"],
-      type:"pie",hole:.62,marker:{colors:["#4d7cfe","#f0526a"]},textinfo:"label+value",
+      type:"pie",hole:.62,marker:{colors:["#6d97cf","#d76b63"]},textinfo:"label+value",
       textfont:{color:"#fff",size:13}}],
       baseLayout({margin:{l:10,r:10,t:10,b:10},annotations:[{text:`${s.trades.total}<br>trades`,
-        showarrow:false,font:{size:16,color:"#e8eaf0"}}]}),PLOT_CFG);
+        showarrow:false,font:{size:16,color:"#e6eaf1"}}]}),PLOT_CFG);
   }
 }
 
@@ -164,7 +164,7 @@ function renderHeat(monthly){
     monthly.grid[y].forEach(v=>{
       if(v==null){h+=`<div class="hc empty"></div>`;return;}
       const a=Math.min(.85,Math.abs(v)/7*.8+.14);
-      const bg=v>=0?`rgba(31,201,138,${a})`:`rgba(240,82,106,${a})`;
+      const bg=v>=0?`rgba(79,174,130,${a})`:`rgba(215,107,99,${a})`;
       h+=`<div class="hc" style="background:${bg}">${v.toFixed(1)}</div>`;
     });
   }
@@ -271,8 +271,8 @@ async function runBacktest(){
       <div id="bEq" style="height:320px"></div></div>
     <div class="card"><h3>Performance</h3><div class="mgrid" style="margin-top:4px">${grid}</div></div>`;
   Plotly.newPlot("bEq",[
-    {x:d.equity.dates,y:d.equity.strategy,type:"scatter",mode:"lines",name:"Strategy",line:{color:"#4d7cfe",width:2.4},fill:"tozeroy",fillcolor:"rgba(77,124,254,.08)"},
-    {x:d.equity.dates,y:d.equity.buyhold,type:"scatter",mode:"lines",name:"Buy & Hold",line:{color:"#8a8f9a",width:1.5,dash:"dash"}}
+    {x:d.equity.dates,y:d.equity.strategy,type:"scatter",mode:"lines",name:"Strategy",line:{color:"#6d97cf",width:2.4},fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)"},
+    {x:d.equity.dates,y:d.equity.buyhold,type:"scatter",mode:"lines",name:"Buy & Hold",line:{color:"#7c8698",width:1.5,dash:"dash"}}
   ],baseLayout({yaxis:{...axis,ticksuffix:"%"},showlegend:true,legend:{orientation:"h",y:1.1,font:{size:11}}}),PLOT_CFG);
 }
 
@@ -364,8 +364,8 @@ async function loadLive(){
   if(h.length){
     const start=d.start_equity;
     Plotly.newPlot("liveEq",[{x:h.map(x=>x.date),y:h.map(x=>(x.equity/start-1)*100),
-      type:"scatter",mode:"lines+markers",line:{color:"#4d7cfe",width:2.4},
-      fill:"tozeroy",fillcolor:"rgba(77,124,254,.08)"}],
+      type:"scatter",mode:"lines+markers",line:{color:"#6d97cf",width:2.4},
+      fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)"}],
       baseLayout({yaxis:{...axis,ticksuffix:"%"}}),PLOT_CFG);
   } else { document.getElementById("liveEq").innerHTML=`<div class="loading">Equity history builds daily — check back after the next scheduled run.</div>`; }
 }
@@ -445,10 +445,10 @@ function plotSurface(id,S,scale){
   if(!S){document.getElementById(id).innerHTML=`<div class="loading">No data feed available — abstained.</div>`;return;}
   Plotly.newPlot(id,[{type:"surface",x:S.x,y:S.y,z:S.z,colorscale:scale||SURF_SCALE,showscale:false,
     contours:{z:{show:true,usecolormap:true,project:{z:false}}}}],
-    {paper_bgcolor:"transparent",font:{color:"#8a8f9a",size:10},margin:{l:0,r:0,t:0,b:0},
-     scene:{xaxis:{title:S.xlabel,gridcolor:"#2a2d35",backgroundcolor:"transparent",showbackground:false},
-       yaxis:{title:S.ylabel,gridcolor:"#2a2d35",backgroundcolor:"transparent",showbackground:false},
-       zaxis:{title:S.zlabel,gridcolor:"#2a2d35",backgroundcolor:"transparent",showbackground:false},
+    {paper_bgcolor:"transparent",font:{color:"#7c8698",size:10},margin:{l:0,r:0,t:0,b:0},
+     scene:{xaxis:{title:S.xlabel,gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
+       yaxis:{title:S.ylabel,gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
+       zaxis:{title:S.zlabel,gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
 }
 async function renderSurfaces(inst){
@@ -474,20 +474,20 @@ async function renderSurfaces(inst){
   plotSurface("sCharm",S.charm,[[0,"#0b2b4a"],[.5,"#2a7de1"],[1,"#f9e07f"]]);
 
   // return distribution
-  const cols=["#4d7cfe","#1fc98a","#f5b544","#f0526a","#7a5bff"];
+  const cols=["#6d97cf","#4fae82","#cf9f45","#d76b63","#c6a15b"];
   const dt=S.return_dist.map((h,i)=>({x:h.x,y:h.y,type:"scatter",mode:"lines",name:h.horizon+"d",
     line:{color:cols[i%cols.length],width:1.6}}));
   // gaussian ref
   const gx=S.return_dist[0].x, gy=gx.map(v=>Math.exp(-v*v/2)/Math.sqrt(2*Math.PI));
-  dt.push({x:gx,y:gy,type:"scatter",mode:"lines",name:"Gaussian",line:{color:"#6a6f7a",width:1.4,dash:"dash"}});
+  dt.push({x:gx,y:gy,type:"scatter",mode:"lines",name:"Gaussian",line:{color:"#57606f",width:1.4,dash:"dash"}});
   Plotly.newPlot("sDist",dt,baseLayout({showlegend:true,legend:{orientation:"h",y:1.12,font:{size:11}},
     xaxis:{...axis,title:"σ"},margin:{l:44,r:16,t:20,b:34}}),PLOT_CFG);
 
   // pca
   const p=S.pca, ev=p.explained_variance_ratio;
   Plotly.newPlot("sPca",[{x:p.factor_names,y:ev.map(x=>x*100),type:"bar",
-    marker:{color:["#4d7cfe","#1fc98a","#f5b544"]},text:ev.map(x=>(x*100).toFixed(1)+"%"),textposition:"outside",
-    textfont:{color:"#e8eaf0"}}],baseLayout({yaxis:{...axis,ticksuffix:"%"},margin:{l:44,r:10,t:20,b:24}}),PLOT_CFG);
+    marker:{color:["#6d97cf","#4fae82","#cf9f45"]},text:ev.map(x=>(x*100).toFixed(1)+"%"),textposition:"outside",
+    textfont:{color:"#e6eaf1"}}],baseLayout({yaxis:{...axis,ticksuffix:"%"},margin:{l:44,r:10,t:20,b:24}}),PLOT_CFG);
   document.getElementById("pcaText").innerHTML=`<div class="muted" style="font-size:12.5px;margin-top:8px">
     Current curve: `+Object.entries(p.current_curve_bps).map(([k,v])=>`${k} ${v}bps`).join(" · ")+`</div>`;
 }
