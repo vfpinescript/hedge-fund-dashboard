@@ -5,3 +5,10 @@ __pycache__/
 external/
 node_modules/
 graphify-out/
+
+Site_Images/
+Quant_Analysis/
+.claude/
+.DS_Store
+reports/
+*.png
