@@ -13,3 +13,6 @@ Quant_Analysis/
 reports/
 *.png
 quant/execution/
+alpaca/equity_history.csv
+alpaca/last_snapshot.json
+alpaca/__pycache__/
