@@ -281,11 +281,11 @@ document.getElementById("liveRefresh").onclick=()=>loadLive();
 const usd = v => (v==null||isNaN(v)) ? "–" : (v<0?"-$":"$")+Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 async function loadLive(){
   const body=document.getElementById("liveBody");
-  body.innerHTML=`<div class="loading">Reading the live TradingView paper account…</div>`;
+  body.innerHTML=`<div class="loading">Reading the live Alpaca paper account…</div>`;
   let d;
   try{ d=await (await fetch("/api/live")).json(); }
   catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
-  if(d.error){ body.innerHTML=`<div class="loading">Snapshot unavailable: ${d.error}<br><span class="muted" style="font-size:12px">Is TradingView running with the paper broker connected?</span></div>`; return; }
+  if(d.error){ body.innerHTML=`<div class="loading">Snapshot unavailable: ${d.error}<br><span class="muted" style="font-size:12px">Alpaca paper API — check the keys and market status.</span></div>`; return; }
   const pos=d.positions||[];
   const acct=d.account||{};
   const unreal=acct.unrealizedPnl!=null?acct.unrealizedPnl:pos.reduce((s,p)=>s+(p.pl||0),0);
@@ -348,7 +348,7 @@ async function loadLive(){
           <div class="metric"><div class="ml">Diversification</div><div class="mv blue">${pr.diversification_ratio}×</div></div>
         </div>`}</div>
     </div>
-    <div class="card"><h3>Open Positions</h3><div class="sub">Live from TradingView paper · updated on refresh</div>
+    <div class="card"><h3>Open Positions</h3><div class="sub">Live from Alpaca paper · updated on refresh</div>
       <div style="overflow-x:auto"><table class="labtable"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg</th><th>Last</th><th>P&L</th><th>P&L&nbsp;%</th></tr></thead>
       <tbody>${rows||`<tr><td colspan=7 class="muted">No open positions.</td></tr>`}</tbody></table></div></div>
     <div class="card-row">

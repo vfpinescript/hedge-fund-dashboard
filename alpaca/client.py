@@ -73,6 +73,12 @@ class Alpaca:
         except Exception:
             return None
 
+    def portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> dict:
+        """Account equity curve: {timestamp:[epoch], equity:[...], profit_loss:[...]}."""
+        return requests.get(f"{PAPER_BASE}/v2/account/portfolio/history",
+                            headers=self.h, params={"period": period, "timeframe": timeframe},
+                            timeout=20).json()
+
     def daily_bars(self, symbol: str, days: int = 400) -> "list[dict]":
         """Daily bars, oldest→newest. Uses IEX feed (free tier)."""
         import datetime as dt

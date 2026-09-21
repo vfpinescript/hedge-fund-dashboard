@@ -222,35 +222,68 @@ def strategy_lab():
 
 
 def live_paper():
-    """Live TradingView paper account: positions + P&L (via the node snapshot)
-    plus the recorded equity history. Not cached — reflects the live account."""
-    import subprocess
-    from pathlib import Path
-    repo = Path.home() / "claudeverstradingview"
-    snap = {}
+    """Live Alpaca paper account for the FX-ETF reversal book: positions + P&L,
+    equity curve (Alpaca portfolio history), forward metrics and portfolio risk.
+    Not cached — reflects the live account on every call."""
+    import datetime as _dt
     try:
-        out = subprocess.run(["node", "tv_paper/snapshot.mjs"], cwd=str(repo),
-                             capture_output=True, text=True, timeout=70)
-        lines = [l for l in out.stdout.splitlines() if l.strip().startswith("{")]
-        snap = json.loads(lines[-1]) if lines else {"error": "no snapshot", "stderr": out.stderr[-300:]}
+        from alpaca.client import Alpaca
     except Exception as e:
-        snap = {"error": str(e)}
-    hist = []
-    hp = repo / "tv_paper" / "equity_history.csv"
-    if hp.exists():
-        for line in hp.read_text().strip().splitlines():
-            parts = line.split(",")
-            if len(parts) == 2:
-                try:
-                    hist.append({"date": parts[0], "equity": float(parts[1])})
-                except ValueError:
-                    pass
-    snap["history"] = hist
-    snap["start_equity"] = 100000.0
+        return {"error": f"alpaca module unavailable: {e}"}
+    try:
+        a = Alpaca()
+    except Exception as e:
+        return {"error": str(e)}
 
-    # forward out-of-sample tracking (accrues as the paper account runs)
+    START_EQUITY = 50000.0
+    try:
+        acct = a.account()
+        equity = float(acct.get("equity", 0))
+        positions = []
+        for p in a.positions():
+            qty = float(p["qty"])
+            positions.append({
+                "symbol": p["symbol"],
+                "side": "long" if qty >= 0 else "short",
+                "qty": abs(qty),
+                "avgPrice": float(p["avg_entry_price"]),
+                "lastPrice": float(p["current_price"]),
+                "pl": float(p["unrealized_pl"]),
+                "plPercent": float(p["unrealized_plpc"]) * 100,
+            })
+        trades = []
+        for o in a.orders(status="all", limit=15):
+            if o.get("filled_at") and o.get("filled_avg_price"):
+                trades.append({"symbol": o.get("symbol"), "side": o.get("side"),
+                               "qty": float(o.get("filled_qty") or o.get("qty") or 0),
+                               "price": float(o["filled_avg_price"])})
+    except Exception as e:
+        return {"error": f"alpaca account read failed: {e}"}
+
+    # equity curve from Alpaca portfolio history
+    hist = []
+    try:
+        ph = a.portfolio_history(period="1M", timeframe="1D")
+        for t, eqv in zip(ph.get("timestamp") or [], ph.get("equity") or []):
+            if eqv:
+                hist.append({"date": _dt.datetime.utcfromtimestamp(int(t)).strftime("%Y-%m-%d"),
+                             "equity": float(eqv)})
+    except Exception:
+        pass
+
+    unreal = sum(p["pl"] for p in positions)
+    snap = {
+        "account": {"equity": equity, "cash": float(acct.get("cash", 0)),
+                    "buying_power": float(acct.get("buying_power", 0)),
+                    "unrealizedPnl": unreal, "realizedPnl": 0.0},
+        "positions": positions, "trades": trades, "history": hist,
+        "start_equity": START_EQUITY,
+    }
+
+    # forward out-of-sample tracking
     eq = np.array([h["equity"] for h in hist], dtype=float)
-    fwd = {"days_live": len(eq), "forward_sharpe": None, "forward_max_dd": None}
+    fwd = {"days_live": len(eq), "forward_sharpe": None, "forward_max_dd": None,
+           "inception_return_pct": 0.0}
     if len(eq) >= 2:
         rets = np.diff(eq) / eq[:-1]
         fwd["inception_return_pct"] = round((eq[-1] / eq[0] - 1) * 100, 3)
@@ -258,15 +291,15 @@ def live_paper():
         fwd["forward_max_dd"] = round(float((eq / peak - 1).min()) * 100, 2)
         if len(rets) >= 20 and rets.std() > 0:
             fwd["forward_sharpe"] = round(float(rets.mean() / rets.std() * np.sqrt(252)), 2)
-    else:
-        fwd["inception_return_pct"] = 0.0
     snap["forward"] = fwd
 
-    # portfolio-level risk of the current book
+    # portfolio-level risk of the current book (signed notional weights)
     try:
         from quant.risk.portfolio_risk import portfolio_risk
-        w = {p["symbol"]: (1 if p["side"] == "long" else -1) * (p.get("usedMargin") or p["qty"])
-             for p in snap.get("positions", [])}
+        raw = {p["symbol"]: (1 if p["side"] == "long" else -1) * p["qty"] * p["lastPrice"]
+               for p in positions}
+        tot = sum(abs(v) for v in raw.values()) or 1.0
+        w = {k: v / tot for k, v in raw.items()}          # normalize to fractional weights
         snap["portfolio_risk"] = portfolio_risk(w) if w else None
     except Exception as e:
         snap["portfolio_risk"] = {"error": str(e)[:80]}
