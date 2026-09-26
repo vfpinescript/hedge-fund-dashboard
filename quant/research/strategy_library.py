@@ -45,6 +45,16 @@ STRATEGIES = {
     "vol_mom": {"name": "Volatility-Scaled Momentum", "family": "momentum",
                 "desc": "12-month momentum normalised by recent volatility.",
                 "fn": vol_scaled_mom, "params": {}, "hold": 21},
+    # Leverage for the Long Run (Gayed 2016): above the 200d MA hold the asset
+    # (2x, paying financing + 1%/yr fee), else T-bills. DSR-robust on the S&P 500.
+    "leverage_2x": {"name": "Leverage Rotation (2x, 200d MA)", "family": "timing",
+                    "desc": "Above the 200-day average hold 2x the asset (financing + 1%/yr fee); below, hold cash. Gayed's 'Leverage for the Long Run'. Best fit: S&P 500.",
+                    "fn": None, "mode": "timing",
+                    "params": {"window": 200, "leverage": 2.0, "fee_annual": 0.01}, "hold": 1},
+    "ma_timing_1x": {"name": "MA Timing (1x, 200d)", "family": "timing",
+                     "desc": "Same regime rule with no leverage: hold the asset above its 200-day average, cash below. Lower drawdown, higher Sharpe than the 2x variant.",
+                     "fn": None, "mode": "timing",
+                     "params": {"window": 200, "leverage": 1.0, "fee_annual": 0.0}, "hold": 1},
 }
 
 # instrument universe, grouped for the picker (+ any yfinance ticker works)
@@ -63,6 +73,21 @@ def _strategy_returns(spec, instrument, cost_bps=1.0, bars=3000, vol_win=63):
     """One strategy on one instrument: vol-scaled, rebalanced at `hold`."""
     df = load_ohlcv(instrument, bars=bars)
     ret = df["close"].pct_change()
+
+    # timing mode: on/off leverage-vs-cash regime rule (Leverage for the Long Run)
+    if spec.get("mode") == "timing":
+        p = spec["params"]
+        close = df["close"]
+        sma = close.rolling(p["window"]).mean()
+        active = (close > sma).shift(1).fillna(False)
+        L, rf_d = p.get("leverage", 1.0), 0.02 / 252        # 2%/yr cash proxy
+        fee_d = p.get("fee_annual", 0.0) / 252
+        lev = L * ret - (L - 1) * rf_d - fee_d
+        strat = pd.Series(np.where(active, lev, rf_d), index=df.index)
+        switch = active.ne(active.shift(1)).fillna(False)
+        strat = strat - switch * (cost_bps / 1e4)            # cost on regime switches
+        return strat.dropna(), ret
+
     sig = spec["fn"](df, **spec["params"])
     vol = ret.rolling(vol_win).std()
     hold = spec["hold"]
