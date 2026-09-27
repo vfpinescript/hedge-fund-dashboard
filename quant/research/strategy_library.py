@@ -115,6 +115,14 @@ def run_strategy(strategy_id, instrument, cost_bps=1.0) -> dict:
     dsr = deflated_sharpe_ratio(strat.values, n_trials=len(STRATEGIES))
     eq = (1 + strat).cumprod()
     bh = (1 + ret.reindex(strat.index).fillna(0)).cumprod()
+    dd = (eq / eq.cummax() - 1) * 100
+    # monthly return grid
+    mo = (1 + strat).resample("ME").prod() - 1
+    mdf = pd.DataFrame({"y": mo.index.year, "m": mo.index.month, "r": mo.values * 100})
+    years = sorted(mdf["y"].unique(), reverse=True)
+    grid = {int(y): [None] * 12 for y in years}
+    for _, row in mdf.iterrows():
+        grid[int(row["y"])][int(row["m"]) - 1] = round(float(row["r"]), 2)
     return {
         "strategy": spec["name"], "instrument": instrument,
         "metrics": {k: (round(v, 4) if isinstance(v, float) else v) for k, v in m.items()},
@@ -122,6 +130,9 @@ def run_strategy(strategy_id, instrument, cost_bps=1.0) -> dict:
         "equity": {"dates": [d.strftime("%Y-%m-%d") for d in eq.index],
                    "strategy": (eq.values * 100 - 100).round(2).tolist(),
                    "buyhold": (bh.values * 100 - 100).round(2).tolist()},
+        "drawdown": {"dates": [d.strftime("%Y-%m-%d") for d in dd.index],
+                     "values": dd.values.round(2).tolist()},
+        "monthly": {"years": [int(y) for y in years], "grid": {int(y): grid[y] for y in years}},
     }
 
 

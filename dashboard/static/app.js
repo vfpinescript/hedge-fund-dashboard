@@ -14,17 +14,16 @@ const baseLayout = extra => Object.assign({
 }, extra||{});
 
 /* ---------- tabs ---------- */
-document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
-  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
-  t.classList.add("active");
-  ["strategies","live","builder","signals","lab","surfaces"].forEach(v=>
-    document.getElementById("view-"+v).classList.toggle("hidden", v!==t.dataset.tab));
-  if(t.dataset.tab==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
-  if(t.dataset.tab==="builder" && !window._builderLoaded){ loadBuilder(); window._builderLoaded=1; }
-  if(t.dataset.tab==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
-  if(t.dataset.tab==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
-  if(t.dataset.tab==="surfaces" && !window._surfLoaded){ loadSurfaces(); window._surfLoaded=1; }
-});
+function showTab(name){
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
+  ["strategies","matrix","live","signals","lab"].forEach(v=>
+    document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
+  if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
+  if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
+  if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
+  if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
+}
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>showTab(t.dataset.tab));
 
 /* ---------- strategies ---------- */
 const METRICS = [
@@ -35,126 +34,86 @@ const METRICS = [
   ["risk_reward","Risk–Reward Ratio","num",""],["max_win_streak","Max Win Streak","int",""],
   ["time_in_dd","Time in DD","pct",""],["max_loss_streak","Max Losing Streak","int",""],
 ];
-let STRATS=[];
+let ASSET_GROUPS={}, CUR_STRAT="reversal_7", CUR_ASSET=null;
 
 async function loadStrategies(){
-  STRATS = await (await fetch("/api/strategies")).json();
-  const list = document.getElementById("stratList");
-  const groups = {};
-  STRATS.forEach((s,i)=>{ (groups[s.category]=groups[s.category]||[]).push({...s,_i:i}); });
+  const lib = await (await fetch("/api/strategy_library")).json();
+  const picker=document.getElementById("stratPicker");
+  picker.innerHTML=lib.strategies.map(s=>`<option value="${s.id}">${s.name}</option>`).join("");
+  if([...picker.options].some(o=>o.value===CUR_STRAT)) picker.value=CUR_STRAT; else CUR_STRAT=picker.value;
+  picker.onchange=()=>{ CUR_STRAT=picker.value; if(CUR_ASSET) selectAsset(CUR_ASSET); };
+  ASSET_GROUPS=lib.instrument_groups;
+  const list=document.getElementById("stratList");
   let html="";
-  for(const cat of Object.keys(groups)){
-    html+=`<div class="list-head">${cat}</div>`;
-    for(const s of groups[cat]){
-      const sh=s.metrics.sharpe||0, cls=sh>=0?"pos":"neg";
-      html+=`<div class="strat-item" data-i="${s._i}">
-        <div class="si-top"><span class="si-name">${s.name}</span>
-        <span class="badge ${cls}">Sharpe ${sh.toFixed(2)}</span></div>
-        <div class="si-cat">${s.category}</div></div>`;
-    }
+  for(const [g,syms] of Object.entries(ASSET_GROUPS)){
+    html+=`<div class="list-head">${g}</div>`;
+    for(const s of syms) html+=`<div class="strat-item" data-asset="${s}"><div class="si-top"><span class="si-name">${s}</span></div></div>`;
   }
   list.innerHTML=html;
-  list.querySelectorAll(".strat-item").forEach(el=>el.onclick=()=>selectStrategy(+el.dataset.i, el));
-  const first=list.querySelector(".strat-item"); if(first) selectStrategy(0, first);
+  list.querySelectorAll(".strat-item").forEach(el=>el.onclick=()=>selectAsset(el.dataset.asset));
+  const first=list.querySelector(".strat-item"); if(first) selectAsset(first.dataset.asset);
 }
 
-function selectStrategy(i, el){
-  document.querySelectorAll(".strat-item").forEach(x=>x.classList.remove("active"));
-  el.classList.add("active");
-  renderDetail(STRATS[i]);
+function selectAsset(asset){
+  CUR_ASSET=asset;
+  document.querySelectorAll("#stratList .strat-item").forEach(x=>x.classList.toggle("active", x.dataset.asset===asset));
+  renderRun(CUR_STRAT, asset);
 }
 
-function overfitChip(o){
-  if(!o || o.dsr==null || isNaN(o.dsr)) return "";
-  const col = o.verdict==="robust"?"var(--green)":o.verdict==="inconclusive"?"var(--amber)":"var(--red)";
+// entry point from the Strategy Matrix: set strategy + asset, then show the page
+function openStrategy(strat, asset){
+  CUR_STRAT=strat;
+  const picker=document.getElementById("stratPicker"); if(picker && [...picker.options].some(o=>o.value===strat)) picker.value=strat;
+  showTab("strategies");
+  selectAsset(asset);
+}
+
+function dsrChip(dsr, verdict){
+  if(dsr==null || isNaN(dsr)) return "";
+  const col=verdict==="robust"?"var(--pos)":verdict==="inconclusive"?"var(--warn)":"var(--neg)";
   return `<div style="text-align:right">
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Overfitting check · DSR</div>
-    <div style="font-size:22px;font-weight:750;color:${col}">${(o.dsr*100).toFixed(1)}%</div>
-    <div style="font-size:11px;color:${col};font-weight:600">${o.verdict}</div>
-    <div style="font-size:10.5px;color:var(--muted2)" title="Deflated Sharpe: prob. true Sharpe>0 after ${o.n_trials} trials">
-      SR ${o.sharpe_ann.toFixed(2)} vs bar SR* ${o.sr_star_ann.toFixed(2)} · ${o.n_trials} trials</div>
-  </div>`;
+    <div style="font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.9px">Overfitting check · DSR</div>
+    <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:${col}">${(dsr*100).toFixed(1)}%</div>
+    <div style="font-size:11px;color:${col};font-weight:600">${verdict}</div></div>`;
 }
 
-function gaugeSVG(score){
-  const r=54, cx=65, cy=65, circ=Math.PI*r, frac=score/100;
-  const off=circ*(1-frac);
-  return `<svg class="gauge-svg" viewBox="0 0 130 130">
-    <path d="M 11 65 A 54 54 0 0 1 119 65" fill="none" stroke="#24262c" stroke-width="9" stroke-linecap="round"/>
-    <path d="M 11 65 A 54 54 0 0 1 119 65" fill="none" stroke="#6d97cf" stroke-width="9"
-      stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${off}"/>
-    <text x="65" y="60" text-anchor="middle" fill="#e6eaf1" font-size="30" font-weight="750">${score}</text>
-    <text x="65" y="80" text-anchor="middle" fill="#7c8698" font-size="12">${score>=60?"Viable":score>=40?"Marginal":"Weak"}</text>
-  </svg>`;
-}
-
-function renderDetail(s){
-  const m=s.metrics;
-  const metricHTML = METRICS.map(([k,label,fmt,color])=>{
-    let v=m[k], disp = fmt==="pct"?fmtPct(v):fmt==="int"?fmtInt(v):fmtNum(v);
-    let c=color; if(!c && (fmt==="pct")) c = (v>=0?"":"red");
+async function renderRun(strat, asset){
+  const box=document.getElementById("stratDetail");
+  box.innerHTML=`<div class="loading">Backtesting ${strat} on ${asset}…</div>`;
+  let d;
+  try{ d=await (await fetch(`/api/strategy_run?strategy=${encodeURIComponent(strat)}&instrument=${encodeURIComponent(asset)}`)).json(); }
+  catch(e){ box.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(d.error){ box.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  const m=d.metrics;
+  const metricHTML=METRICS.map(([k,label,fmt,color])=>{
+    let v=m[k], disp=fmt==="pct"?fmtPct(v):fmt==="int"?fmtInt(v):fmtNum(v);
+    let c=color; if(!c && fmt==="pct") c=(v>=0?"":"red");
     return `<div class="metric"><div class="ml">${label}</div><div class="mv ${c}">${disp}</div></div>`;
   }).join("");
   const tr=m.total_return, trCls=tr>=0?"blue":"red";
-  document.getElementById("stratDetail").innerHTML=`
+  box.innerHTML=`
     <div class="detail-head">
-      <div><h1>${s.name}</h1><div class="desc">${s.description}</div></div>
-      ${overfitChip(s.overfit)}
+      <div><h1>${d.strategy}</h1><div class="desc">${asset} · net of costs · ${d.equity.dates.length} days</div></div>
+      ${dsrChip(d.dsr,d.dsr_verdict)}
     </div>
-    <div class="mgrid" style="margin-bottom:30px">${metricHTML}</div>
+    <div class="mgrid" style="margin-bottom:22px">${metricHTML}</div>
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <h3>Total Profit &amp; Loss</h3>
-        <span class="muted" style="font-size:12px">Strategy vs Buy &amp; Hold</span>
-      </div>
-      <div class="pnl-big" style="color:var(--${trCls})">${fmtPct(tr)}
-        <small>net of costs · long/short · ${s.equity.dates.length} days</small></div>
-      <div class="chart" id="eqChart" style="height:340px"></div>
-    </div>
-    <div class="card"><h3>Monthly Returns</h3><div class="sub">Calendar performance heatmap</div>
-      <div id="heat"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3>Total Profit &amp; Loss</h3>
+        <span class="muted" style="font-size:12px">Strategy vs Buy &amp; Hold</span></div>
+      <div class="pnl-big" style="color:var(--${trCls})">${fmtPct(tr)}</div>
+      <div class="chart" id="eqChart" style="height:320px"></div></div>
     <div class="card-row">
       <div class="card"><h3>Drawdown</h3><div class="sub">Underwater equity</div>
         <div class="chart" id="ddChart" style="height:240px"></div></div>
-      <div class="card"><h3>Rolling Sharpe</h3><div class="sub">126-day window</div>
-        <div class="chart" id="rsChart" style="height:240px"></div></div>
-    </div>
-    ${s.trades?`<div class="card"><h3>Trade Distribution</h3>
-      <div class="chart" id="tradeChart" style="height:260px"></div></div>`:""}`;
-
-  // equity
-  const traces=[{x:s.equity.dates,y:s.equity.values,type:"scatter",mode:"lines",
-    line:{color:"#6d97cf",width:2.4},fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)",name:"Strategy"}];
-  if(s.buyhold){ traces.push({x:s.buyhold.dates,y:s.buyhold.values,type:"scatter",mode:"lines",
-    name:"Buy & Hold",line:{color:"#7c8698",width:1.5,dash:"dash"}}); }
-  if(s.components){ const cols=["#cf9f45","#4fae82","#c6a15b","#d76b63","#6d97cf","#c6a15b"];
-    Object.entries(s.components).forEach(([k,c],i)=>traces.push({x:c.dates,y:c.values,type:"scatter",
-      mode:"lines",line:{color:cols[i%cols.length],width:1},opacity:.5,name:k})); }
-  Plotly.newPlot("eqChart",traces,baseLayout({yaxis:{...axis,ticksuffix:"%"},showlegend:true,
-    legend:{font:{size:11},orientation:"h",y:1.1}}),PLOT_CFG);
-
-  // heatmap
-  renderHeat(s.monthly);
-
-  // drawdown
-  Plotly.newPlot("ddChart",[{x:s.drawdown.dates,y:s.drawdown.values,type:"scatter",mode:"lines",
-    line:{color:"#d76b63",width:1},fill:"tozeroy",fillcolor:"rgba(215,107,99,.25)"}],
-    baseLayout({yaxis:{...axis,ticksuffix:"%"}}),PLOT_CFG);
-
-  // rolling sharpe
-  Plotly.newPlot("rsChart",[{x:s.rolling_sharpe.dates,y:s.rolling_sharpe.values,type:"scatter",
-    mode:"lines",line:{color:"#cf9f45",width:1.3}}],
-    baseLayout({shapes:[{type:"line",x0:s.rolling_sharpe.dates[0],x1:s.rolling_sharpe.dates.slice(-1)[0],
-      y0:1,y1:1,line:{color:"#6d97cf",width:1,dash:"dash"}}]}),PLOT_CFG);
-
-  // trade donut
-  if(s.trades){
-    Plotly.newPlot("tradeChart",[{values:[s.trades.long,s.trades.short],labels:["Long","Short"],
-      type:"pie",hole:.62,marker:{colors:["#6d97cf","#d76b63"]},textinfo:"label+value",
-      textfont:{color:"#fff",size:13}}],
-      baseLayout({margin:{l:10,r:10,t:10,b:10},annotations:[{text:`${s.trades.total}<br>trades`,
-        showarrow:false,font:{size:16,color:"#e6eaf1"}}]}),PLOT_CFG);
-  }
+      <div class="card"><h3>Monthly Returns</h3><div class="sub">Calendar heatmap</div>
+        <div id="heat" style="padding:14px 6px"></div></div>
+    </div>`;
+  Plotly.newPlot("eqChart",[
+    {x:d.equity.dates,y:d.equity.strategy,type:"scatter",mode:"lines",name:"Strategy",line:{color:"#6d97cf",width:2.4},fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)"},
+    {x:d.equity.dates,y:d.equity.buyhold,type:"scatter",mode:"lines",name:"Buy & Hold",line:{color:"#7c8698",width:1.5,dash:"dash"}}
+  ],baseLayout({yaxis:{...axis,ticksuffix:"%"},showlegend:true,legend:{orientation:"h",y:1.1,font:{size:11}}}),PLOT_CFG);
+  Plotly.newPlot("ddChart",[{x:d.drawdown.dates,y:d.drawdown.values,type:"scatter",mode:"lines",line:{color:"#d76b63",width:1},fill:"tozeroy",fillcolor:"rgba(215,107,99,.25)"}],baseLayout({yaxis:{...axis,ticksuffix:"%"}}),PLOT_CFG);
+  renderHeat(d.monthly);
 }
 
 function renderHeat(monthly){
@@ -213,67 +172,60 @@ function agentCard(name,role,verdict,conv,why){
     <div class="a-why">${why||""}</div></div>`;
 }
 
-/* ---------- strategy builder ---------- */
-async function loadBuilder(){
-  const body=document.getElementById("builderBody");
-  let lib;
-  try{ lib=await (await fetch("/api/strategy_library")).json(); }
-  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
-  const stratOpts=lib.strategies.map(s=>`<option value="${s.id}" title="${s.desc}">${s.name}</option>`).join("");
-  const instOpts=Object.entries(lib.instrument_groups).map(([g,syms])=>
-    `<optgroup label="${g}">`+syms.map(s=>`<option value="${s}">${s}</option>`).join("")+`</optgroup>`).join("");
-  body.innerHTML=`
-    <div class="card" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
-      <div><div class="ml" style="margin-bottom:6px">Strategy</div>
-        <select id="bStrat" class="select" style="min-width:230px">${stratOpts}</select></div>
-      <div><div class="ml" style="margin-bottom:6px">Instrument</div>
-        <select id="bInst" class="select" style="min-width:180px">${instOpts}</select></div>
-      <div><div class="ml" style="margin-bottom:6px">…or any ticker</div>
-        <input id="bCustom" class="select" placeholder="e.g. AAPL, TLT, GLD" style="min-width:150px"></div>
-      <button id="bRun" class="dir-chip dir-bull" style="cursor:pointer;border:none;font-size:15px;padding:11px 24px">▶ Run Backtest</button>
-      <div id="bStratDesc" class="muted" style="font-size:12.5px;flex-basis:100%"></div>
-    </div>
-    <div id="bResult"></div>`;
-  const descOf=()=>lib.strategies.find(s=>s.id===document.getElementById("bStrat").value)?.desc||"";
-  const showDesc=()=>document.getElementById("bStratDesc").textContent=descOf();
-  document.getElementById("bStrat").onchange=showDesc; showDesc();
-  document.getElementById("bRun").onclick=runBacktest;
-  document.getElementById("bCustom").addEventListener("keydown",e=>{ if(e.key==="Enter") runBacktest(); });
+/* ---------- strategy matrix ---------- */
+let MATRIX=null;
+function matrixColor(v, metric){
+  if(v==null) return "transparent";
+  // map to a red->grey->green scale; scale midpoint/ranges per metric
+  const ranges={total_return:[-60,60], sharpe:[-1,1], sortino:[-1.5,1.5], dsr:[0,1]};
+  const [lo,hi]=ranges[metric]||[-1,1];
+  let x=metric==="dsr"?(v-lo)/(hi-lo):(v-lo)/(hi-lo);
+  x=Math.max(0,Math.min(1,x));
+  const a=Math.abs(x-0.5)*2*0.55+0.06;
+  if(x>=0.5) return `rgba(79,174,130,${a})`;      // green
+  return `rgba(215,107,99,${a})`;                 // red
 }
-async function runBacktest(){
-  const strat=document.getElementById("bStrat").value;
-  const custom=document.getElementById("bCustom").value.trim();
-  const inst=custom||document.getElementById("bInst").value;
-  const out=document.getElementById("bResult");
-  out.innerHTML=`<div class="loading">Backtesting ${strat} on ${inst}…</div>`;
-  let d;
-  try{ d=await (await fetch(`/api/strategy_run?strategy=${encodeURIComponent(strat)}&instrument=${encodeURIComponent(inst)}`)).json(); }
-  catch(e){ out.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
-  if(d.error){ out.innerHTML=`<div class="card"><div class="muted">Couldn't run: ${d.error}</div></div>`; return; }
-  const m=d.metrics;
-  const dcol=d.dsr_verdict==="robust"?"var(--green)":d.dsr_verdict==="inconclusive"?"var(--amber)":"var(--red)";
-  const c=v=>v>=0?"blue":"red";
-  const M=[["total_return","Total Return","pct"],["sharpe","Sharpe","num"],["sortino","Sortino","num"],
-    ["max_drawdown","Max Drawdown","pct"],["win_rate","Win Rate","pct"],["profit_factor","Profit Factor","num"],
-    ["risk_reward","Risk-Reward","num"],["time_in_dd","Time in DD","pct"]];
-  const grid=M.map(([k,l,f])=>{const v=m[k];const disp=f==="pct"?fmtPct(v):fmtNum(v);
-    return `<div class="metric"><div class="ml">${l}</div><div class="mv ${f==='pct'?c(v):''}">${disp}</div></div>`;}).join("");
-  out.innerHTML=`
-    <div class="decision-banner">
-      <div class="dir-chip" style="background:${dcol}22;color:${dcol};font-size:15px">DSR ${(d.dsr*100).toFixed(0)}%</div>
-      <div><div style="font-weight:750;font-size:16px">${d.strategy} · ${d.instrument}</div>
-        <div class="muted" style="font-size:12.5px">Overfitting check: <b style="color:${dcol}">${d.dsr_verdict}</b> — is this edge real or noise?</div></div>
-      <div style="margin-left:auto;text-align:right">
-        <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.6px">Total Return</div>
-        <div style="font-size:26px;font-weight:800;color:var(--${c(m.total_return)})">${fmtPct(m.total_return)}</div></div>
-    </div>
-    <div class="card"><h3>Equity Curve</h3><div class="sub">Strategy vs Buy &amp; Hold · ${d.equity.dates.length} days</div>
-      <div id="bEq" style="height:320px"></div></div>
-    <div class="card"><h3>Performance</h3><div class="mgrid" style="margin-top:4px">${grid}</div></div>`;
-  Plotly.newPlot("bEq",[
-    {x:d.equity.dates,y:d.equity.strategy,type:"scatter",mode:"lines",name:"Strategy",line:{color:"#6d97cf",width:2.4},fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)"},
-    {x:d.equity.dates,y:d.equity.buyhold,type:"scatter",mode:"lines",name:"Buy & Hold",line:{color:"#7c8698",width:1.5,dash:"dash"}}
-  ],baseLayout({yaxis:{...axis,ticksuffix:"%"},showlegend:true,legend:{orientation:"h",y:1.1,font:{size:11}}}),PLOT_CFG);
+function matrixVal(cell, metric){
+  if(!cell) return null;
+  return metric==="dsr" ? cell.dsr : cell[metric];
+}
+function matrixDisp(cell, metric){
+  const v=matrixVal(cell,metric);
+  if(v==null) return "–";
+  if(metric==="total_return") return v.toFixed(0)+"%";
+  if(metric==="dsr") return (v*100).toFixed(0)+"%";
+  return v.toFixed(2);
+}
+async function loadMatrix(){
+  const body=document.getElementById("matrixBody");
+  try{ MATRIX=await (await fetch("/api/strategy_matrix")).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(MATRIX.error){ body.innerHTML=`<div class="loading">${MATRIX.error}</div>`; return; }
+  document.getElementById("matrixMetric").onchange=renderMatrix;
+  renderMatrix();
+}
+function renderMatrix(){
+  const metric=document.getElementById("matrixMetric").value;
+  const S=MATRIX.strategies;
+  let h=`<div class="matrix-wrap"><table class="mtx"><thead><tr><th class="rowhead corner">Asset \\ Strategy</th>`;
+  h+=S.map(s=>`<th title="${s.name}">${s.name.replace(/ \(.*\)/,"")}</th>`).join("");
+  h+=`</tr></thead><tbody>`;
+  for(const row of MATRIX.rows){
+    h+=`<tr><td class="rowhead">${row.asset}</td>`;
+    for(const s of S){
+      const cell=row.cells[s.id];
+      if(!cell){ h+=`<td class="cell na">–</td>`; continue; }
+      const v=matrixVal(cell,metric);
+      h+=`<td class="cell" style="background:${matrixColor(v,metric)}" data-strat="${s.id}" data-asset="${row.asset}"
+        title="${row.asset} · ${s.name}\nreturn ${cell.total_return}%  Sharpe ${cell.sharpe}  Sortino ${cell.sortino}  DSR ${(cell.dsr*100).toFixed(0)}% (${cell.verdict})">${matrixDisp(cell,metric)}</td>`;
+    }
+    h+=`</tr>`;
+  }
+  h+=`</tbody></table></div>
+    <div class="mtx-legend">Lower<span class="mtx-swatch"></span>Higher · click any cell to open it on the Strategies page. Colour = ${metric.replace("_"," ")}.</div>`;
+  const body=document.getElementById("matrixBody");
+  body.innerHTML=h;
+  body.querySelectorAll("td.cell[data-strat]").forEach(td=>td.onclick=()=>openStrategy(td.dataset.strat, td.dataset.asset));
 }
 
 /* ---------- live paper ---------- */
@@ -431,65 +383,6 @@ async function loadLab(){
     kb.innerHTML=`<div style="padding:8px 0"><span style="color:var(--green);font-weight:700">✓ No arbitrage right now</span>
       <span class="muted"> — scanned ${kal.priced} liquid markets across ${kal.events_seen} events; all efficiently priced (the normal, honest case). The scanner will flag a lock the moment one appears.</span></div>`;
   }
-}
-
-/* ---------- surfaces ---------- */
-const SURF_SCALE=[[0,"#1a1140"],[.3,"#7a2a8f"],[.55,"#c73e6b"],[.78,"#f5844a"],[1,"#f9e07f"]];
-async function loadSurfaces(){
-  const sel=fillSelect("surfInstrument"); sel.onchange=()=>renderSurfaces(sel.value);
-  renderSurfaces(sel.value);
-}
-function surfDiv(id,title,sub){return `<div class="card"><h3>${title}</h3><div class="sub">${sub}</div>
-  <div id="${id}" style="height:360px"></div></div>`;}
-function plotSurface(id,S,scale){
-  if(!S){document.getElementById(id).innerHTML=`<div class="loading">No data feed available — abstained.</div>`;return;}
-  Plotly.newPlot(id,[{type:"surface",x:S.x,y:S.y,z:S.z,colorscale:scale||SURF_SCALE,showscale:false,
-    contours:{z:{show:true,usecolormap:true,project:{z:false}}}}],
-    {paper_bgcolor:"transparent",font:{color:"#7c8698",size:10},margin:{l:0,r:0,t:0,b:0},
-     scene:{xaxis:{title:S.xlabel,gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
-       yaxis:{title:S.ylabel,gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
-       zaxis:{title:S.zlabel,gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
-       camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
-}
-async function renderSurfaces(inst){
-  const body=document.getElementById("surfacesBody");
-  body.innerHTML=`<div class="loading">Computing surfaces for ${inst} (fetching option chain…)</div>`;
-  const S=await (await fetch("/api/surfaces?instrument="+encodeURIComponent(inst))).json();
-  if(S.error){body.innerHTML=`<div class="loading">Error: ${S.error}</div>`;return;}
-  body.innerHTML=`<div class="surf-grid">
-    ${surfDiv("sTail","Tail-Exponent Surface","Hill index α over window × order-statistic k — fat-tail risk ("+inst+")")}
-    ${surfDiv("sVol","Volatility Surface","Implied vol over strike × expiry — SPX/SPY options")}
-    ${surfDiv("sGamma","Gamma Surface","∂²V/∂S² over spot × maturity — Black-Scholes")}
-    ${surfDiv("sCharm","Charm Surface","∂Δ/∂t over spot × maturity — dealer decay")}
-  </div>
-  <div class="card"><h3>Return Distribution Across Horizons</h3>
-    <div class="sub">Densities (σ units) — the fat left tail Gaussian VaR misses ("+inst+")</div>
-    <div id="sDist" style="height:300px"></div></div>
-  <div class="card"><h3>Yield-Curve PCA</h3><div class="sub">Level / Slope / Curvature — live Treasury tenors</div>
-    <div id="sPca" style="height:120px" ></div><div id="pcaText"></div></div>`;
-
-  plotSurface("sTail",S.tail);
-  plotSurface("sVol",S.vol,"Viridis");
-  plotSurface("sGamma",S.gamma);
-  plotSurface("sCharm",S.charm,[[0,"#0b2b4a"],[.5,"#2a7de1"],[1,"#f9e07f"]]);
-
-  // return distribution
-  const cols=["#6d97cf","#4fae82","#cf9f45","#d76b63","#c6a15b"];
-  const dt=S.return_dist.map((h,i)=>({x:h.x,y:h.y,type:"scatter",mode:"lines",name:h.horizon+"d",
-    line:{color:cols[i%cols.length],width:1.6}}));
-  // gaussian ref
-  const gx=S.return_dist[0].x, gy=gx.map(v=>Math.exp(-v*v/2)/Math.sqrt(2*Math.PI));
-  dt.push({x:gx,y:gy,type:"scatter",mode:"lines",name:"Gaussian",line:{color:"#57606f",width:1.4,dash:"dash"}});
-  Plotly.newPlot("sDist",dt,baseLayout({showlegend:true,legend:{orientation:"h",y:1.12,font:{size:11}},
-    xaxis:{...axis,title:"σ"},margin:{l:44,r:16,t:20,b:34}}),PLOT_CFG);
-
-  // pca
-  const p=S.pca, ev=p.explained_variance_ratio;
-  Plotly.newPlot("sPca",[{x:p.factor_names,y:ev.map(x=>x*100),type:"bar",
-    marker:{color:["#6d97cf","#4fae82","#cf9f45"]},text:ev.map(x=>(x*100).toFixed(1)+"%"),textposition:"outside",
-    textfont:{color:"#e6eaf1"}}],baseLayout({yaxis:{...axis,ticksuffix:"%"},margin:{l:44,r:10,t:20,b:24}}),PLOT_CFG);
-  document.getElementById("pcaText").innerHTML=`<div class="muted" style="font-size:12.5px;margin-top:8px">
-    Current curve: `+Object.entries(p.current_curve_bps).map(([k,v])=>`${k} ${v}bps`).join(" · ")+`</div>`;
 }
 
 loadStrategies();

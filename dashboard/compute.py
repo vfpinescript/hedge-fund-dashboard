@@ -316,6 +316,46 @@ def strategy_run(strategy_id, instrument):
     return run_strategy(strategy_id, (instrument or "").strip().upper())
 
 
+# assets shown down the side of the Strategy Matrix
+MATRIX_ASSETS = [
+    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD",
+    "XAUUSD", "XAGUSD", "USOIL", "NATGAS",
+    "SPX", "NDX", "BTCUSD", "ETHUSD",
+]
+
+
+def strategy_matrix():
+    """Every strategy applied to every tradeable asset at once — a grid of
+    total return / Sharpe / Sortino / DSR per (asset, strategy). Cached."""
+    if "matrix" in _CACHE:
+        return _CACHE["matrix"]
+    from quant.research.strategy_library import run_strategy, STRATEGIES
+    strat_meta = [{"id": k, "name": v["name"], "family": v["family"]}
+                  for k, v in STRATEGIES.items()]
+    rows = []
+    for asset in MATRIX_ASSETS:
+        cells = {}
+        for s in strat_meta:
+            try:
+                r = run_strategy(s["id"], asset)
+                if "error" in r:
+                    cells[s["id"]] = None
+                else:
+                    m = r["metrics"]
+                    cells[s["id"]] = {
+                        "total_return": round(m.get("total_return", 0) * 100, 1),
+                        "sharpe": round(m.get("sharpe", 0), 2),
+                        "sortino": round(m.get("sortino", 0), 2),
+                        "dsr": r.get("dsr"), "verdict": r.get("dsr_verdict"),
+                    }
+            except Exception:
+                cells[s["id"]] = None
+        rows.append({"asset": asset, "cells": cells})
+    out = {"strategies": strat_meta, "assets": MATRIX_ASSETS, "rows": rows}
+    _CACHE["matrix"] = out
+    return out
+
+
 def kalshi_scan():
     if "kalshi" in _CACHE:
         return _CACHE["kalshi"]

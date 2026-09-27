@@ -61,6 +61,14 @@ def api_strategy_library():
     return jsonify(compute.strategy_library())
 
 
+@app.route("/api/strategy_matrix")
+def api_strategy_matrix():
+    try:
+        return jsonify(compute.strategy_matrix())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/strategy_run")
 def api_strategy_run():
     try:

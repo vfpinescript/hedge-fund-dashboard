@@ -31,17 +31,15 @@
       <div class="rail-label">Research</div>
       <button class="tab active" data-tab="strategies">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 12l3.5-4 3 2.5L14 4"/><path d="M2 14h12"/></svg>Strategies</button>
+      <button class="tab" data-tab="matrix">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M6 2v12M10 2v12M2 6h12M2 10h12"/></svg>Strategy Matrix</button>
       <button class="tab" data-tab="signals">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 1.5"/></svg>Live Signals</button>
       <button class="tab" data-tab="lab">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 2v4L3 12a1.5 1.5 0 001.4 2h7.2A1.5 1.5 0 0013 12l-3-6V2"/><path d="M5 2h6"/></svg>Strategy Lab</button>
-      <button class="tab" data-tab="surfaces">
-        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 6l6-3 6 3-6 3-6-3z"/><path d="M2 10l6 3 6-3"/></svg>Quant Surfaces</button>
       <div class="rail-label">Execution</div>
       <button class="tab" data-tab="live">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 6h12M5 9h3"/></svg>Live Paper</button>
-      <button class="tab" data-tab="builder">
-        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v12M2 8h12"/><circle cx="8" cy="8" r="6"/></svg>Strategy Builder</button>
       <div class="rail-foot">Meridian AM · internal desk tool.<br>Simulated &amp; public-data figures only. Not investment advice.</div>
     </nav>
 
@@ -49,8 +47,17 @@
     <main class="content">
       <!-- STRATEGIES -->
       <section class="view" id="view-strategies">
-        <aside class="strat-list" id="stratList"><div class="loading">Loading strategy book…</div></aside>
-        <main class="strat-detail" id="stratDetail"><div class="loading">Select a strategy</div></main>
+        <div class="strat-topbar">
+          <div>
+            <h2>Strategies</h2>
+            <p class="muted">Choose a strategy, then an asset. Any strategy can be applied to any asset, and the Deflated Sharpe Ratio flags whether the result is real or noise.</p>
+          </div>
+          <select id="stratPicker" class="select"></select>
+        </div>
+        <div class="strat-split">
+          <aside class="strat-list" id="stratList"><div class="loading">Loading…</div></aside>
+          <main class="strat-detail" id="stratDetail"><div class="loading">Select an asset</div></main>
+        </div>
       </section>
 
       <!-- LIVE SIGNALS -->
@@ -65,15 +72,21 @@
         <div id="signalsBody"><div class="loading">Loading…</div></div>
       </section>
 
-      <!-- STRATEGY BUILDER -->
-      <section class="view hidden" id="view-builder">
+      <!-- STRATEGY MATRIX -->
+      <section class="view hidden" id="view-matrix">
         <div class="signals-head">
           <div>
-            <h2>Strategy Builder</h2>
-            <p>Point any strategy at any instrument — equity, ETF, bond, currency, crypto, commodity — and backtest on the spot. The Deflated Sharpe Ratio flags whether a result is edge or noise.</p>
+            <h2>Strategy Matrix</h2>
+            <p>Every strategy applied to every tradeable asset at once. Each cell is one backtest; the colour is the metric below. Click any cell to open it on the Strategies page.</p>
           </div>
+          <select id="matrixMetric" class="select">
+            <option value="total_return">Total Return</option>
+            <option value="sharpe">Sharpe</option>
+            <option value="sortino">Sortino</option>
+            <option value="dsr">DSR (robustness)</option>
+          </select>
         </div>
-        <div id="builderBody"><div class="loading">Loading strategy library…</div></div>
+        <div id="matrixBody"><div class="loading">Computing every strategy on every asset (first load runs the backtests)…</div></div>
       </section>
 
       <!-- LIVE PAPER -->
@@ -99,17 +112,6 @@
         <div id="labBody"><div class="loading">Loading…</div></div>
       </section>
 
-      <!-- QUANT SURFACES -->
-      <section class="view hidden" id="view-surfaces">
-        <div class="signals-head">
-          <div>
-            <h2>Quant Surfaces</h2>
-            <p>Tail-exponent, volatility, gamma and charm surfaces plus the yield-curve decomposition — from the research library.</p>
-          </div>
-          <select id="surfInstrument" class="select"></select>
-        </div>
-        <div id="surfacesBody"><div class="loading">Computing surfaces…</div></div>
-      </section>
     </main>
   </div>
 
