@@ -55,7 +55,31 @@ STRATEGIES = {
                      "desc": "Same regime rule with no leverage: hold the asset above its 200-day average, cash below. Lower drawdown, higher Sharpe than the 2x variant.",
                      "fn": None, "mode": "timing",
                      "params": {"window": 200, "leverage": 1.0, "fee_annual": 0.0}, "hold": 1},
+    # Donchian channel breakout (classic trend / turtle)
+    "donchian_55": {"name": "Donchian Breakout (55d)", "family": "trend",
+                    "desc": "Go long on a new 55-day high, short on a new 55-day low, hold until the opposite breakout. Classic trend-following.",
+                    "fn": "donchian_sig", "params": {"window": 55}, "hold": 5},
+    # Dual moving-average crossover (golden/death cross)
+    "ma_cross": {"name": "MA Crossover (50/200)", "family": "trend",
+                 "desc": "Long when the 50-day average is above the 200-day, short when below. The golden/death cross.",
+                 "fn": "ma_cross_sig", "params": {"fast": 50, "slow": 200}, "hold": 5},
 }
+
+
+def donchian_sig(df, window=55):
+    hi = df["close"].rolling(window).max()
+    lo = df["close"].rolling(window).min()
+    sig = pd.Series(np.nan, index=df.index)
+    sig[df["close"] >= hi] = 1.0
+    sig[df["close"] <= lo] = -1.0
+    return sig.ffill().fillna(0.0)
+
+
+def ma_cross_sig(df, fast=50, slow=200):
+    return np.sign(df["close"].rolling(fast).mean() - df["close"].rolling(slow).mean())
+
+
+_SIG_FUNCS = {"donchian_sig": donchian_sig, "ma_cross_sig": ma_cross_sig}
 
 # instrument universe, grouped for the picker (+ any yfinance ticker works)
 INSTRUMENT_GROUPS = {
@@ -88,7 +112,19 @@ def _strategy_returns(spec, instrument, cost_bps=1.0, bars=3000, vol_win=63):
         strat = strat - switch * (cost_bps / 1e4)            # cost on regime switches
         return strat.dropna(), ret
 
-    sig = spec["fn"](df, **spec["params"])
+    # overnight mode: fade the overnight gap, earn the intraday session
+    if spec.get("mode") == "overnight":
+        o, c = df["open"], df["close"]
+        r_on = o / c.shift(1) - 1.0          # overnight gap (known at the open)
+        r_id = c / o - 1.0                   # intraday return (earned during the day)
+        pos = -np.sign(r_on)                 # reversal: fade the gap
+        strat = pos * r_id - (pos - pos.shift(1)).abs() * (cost_bps / 1e4)
+        return strat.dropna(), c.pct_change()
+
+    fn = spec["fn"]
+    if isinstance(fn, str):
+        fn = _SIG_FUNCS[fn]
+    sig = fn(df, **spec["params"])
     vol = ret.rolling(vol_win).std()
     hold = spec["hold"]
     raw = np.sign(sig) / vol
