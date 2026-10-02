@@ -50,7 +50,8 @@ def portfolio_risk(weights: dict, bars: int = 500, returns: pd.DataFrame | None 
         return {"error": "zero gross exposure"}
     w = w / gross                                        # normalise to gross 1
 
-    cov = R.cov().values * 252                           # annualised covariance
+    from quant.risk.cov import shrunk_cov
+    cov = shrunk_cov(R) * 252                             # shrunk (Ledoit-Wolf), PSD, annualised
     vol_i = np.sqrt(np.diag(cov))                        # per-instrument ann vol
     port_var = float(w @ cov @ w)
     port_vol = float(np.sqrt(max(port_var, 0)))
