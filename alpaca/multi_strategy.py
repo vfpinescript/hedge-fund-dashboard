@@ -63,7 +63,7 @@ def _sleeve_return_series(a, lookback=504) -> pd.DataFrame:
     return df.iloc[-lookback:]
 
 
-TARGET_VOL = float(os.environ.get("TARGET_VOL", "0.10"))   # 10% annualised book vol
+TARGET_VOL = float(os.environ.get("TARGET_VOL", "0.06"))   # 6% annualised book vol cap
 
 
 def _erc_weights(cov: np.ndarray, cols) -> dict:
