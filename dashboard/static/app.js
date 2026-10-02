@@ -305,6 +305,34 @@ async function loadLive(){
       <td class="num">${c.weight}</td><td class="num">${(c.vol*100).toFixed(1)}%</td>
       <td class="num" style="color:${col(c.risk_contribution_pct)}">${c.risk_contribution_pct}%</td></tr>`).join("");
 
+  const bk=d.book||{};
+  const bookHTML = bk.error ? `<div class="card"><h3>Book Construction</h3><div class="sub" style="padding-bottom:14px">${bk.error}</div></div>` : (()=>{
+    const reg=bk.regime||{};
+    const rc = reg.state==="turbulent"?"var(--warn)":reg.state==="calm"?"var(--pos)":"var(--mut)";
+    const w=bk.weights||{};
+    const bar=(label,val,c)=>`<div style="margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between;font-size:12px"><span>${label}</span><span class="num" style="color:${c}">${((val||0)*100).toFixed(1)}%</span></div>
+      <div style="height:7px;background:var(--line-2);border-radius:3px;margin-top:4px;overflow:hidden"><div style="height:100%;width:${((val||0)*100).toFixed(0)}%;background:${c}"></div></div></div>`;
+    return `<div class="card-row">
+      <div class="card"><h3>Risk Regime</h3><div class="sub">Jump-model on equities · scales the whole book</div>
+        <div style="padding:14px 18px 18px">
+          <div class="dir-chip" style="background:${rc}22;color:${rc};display:inline-block;font-size:15px">${(reg.state||"—").toUpperCase()}</div>
+          <div class="mgrid" style="grid-template-columns:1fr 1fr;margin-top:14px">
+            <div class="metric"><div class="ml">Exposure scale</div><div class="mv">×${reg.exposure_scale??"—"}</div></div>
+            <div class="metric"><div class="ml">Switches / yr</div><div class="mv">${reg.switches_per_year??"—"}</div></div>
+            <div class="metric"><div class="ml">Book vol (ann)</div><div class="mv">${bk.book_vol!=null?(bk.book_vol*100).toFixed(1)+"%":"—"}</div></div>
+            <div class="metric"><div class="ml">Net invested</div><div class="mv">${bk.invested!=null?(bk.invested*100).toFixed(0)+"%":"—"}</div></div>
+          </div></div></div>
+      <div class="card"><h3>Sleeve Weights</h3><div class="sub">Equal risk contribution across uncorrelated sleeves</div>
+        <div style="padding:14px 18px 18px">
+          ${bar("FX reversal",w.fx,"var(--blue)")}
+          ${bar("Leverage rotation · "+(bk.lev_regime||""),w.leverage,"var(--gold)")}
+          ${bar("Crypto trend · "+(bk.crypto_regime||""),w.crypto,"var(--pos)")}
+          <div class="muted" style="font-size:11px;margin-top:8px">Vol target ${bk.target_vol!=null?(bk.target_vol*100).toFixed(0)+"%":"—"} · exposure cap ×${bk.vol_scale??"—"}</div>
+        </div></div>
+    </div>`;
+  })();
+
   body.innerHTML=`
     <div class="decision-banner">
       <div><div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.6px">Total P&L</div>
@@ -322,6 +350,7 @@ async function loadLive(){
         <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.6px">Return</div>
         <div style="font-size:20px;font-weight:750;color:${col(ret)}">${ret>=0?"+":""}${ret.toFixed(3)}%</div></div>
     </div>
+    ${bookHTML}
     <div class="card"><h3>Equity Curve</h3><div class="sub">Paper equity, recorded daily — real forward out-of-sample performance</div>
       <div id="liveEq" style="height:280px"></div></div>
     <div class="card-row">

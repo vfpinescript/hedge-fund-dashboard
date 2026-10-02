@@ -303,6 +303,20 @@ def live_paper():
         snap["portfolio_risk"] = portfolio_risk(w) if w else None
     except Exception as e:
         snap["portfolio_risk"] = {"error": str(e)[:80]}
+
+    # live book construction: regime, ERC sleeve weights, book vol targeting
+    try:
+        from alpaca.multi_strategy import compute_combined
+        cc = compute_combined(a)
+        snap["book"] = {
+            "weights": cc["weights"], "correlations": cc["correlations"],
+            "regime": cc["regime"], "book_vol": cc["book_vol"],
+            "target_vol": cc["target_vol"], "vol_scale": cc["vol_scale"],
+            "invested": cc["invested"], "lev_regime": cc["lev_regime"],
+            "crypto_regime": cc["crypto_regime"],
+        }
+    except Exception as e:
+        snap["book"] = {"error": str(e)[:100]}
     return snap
 
 
