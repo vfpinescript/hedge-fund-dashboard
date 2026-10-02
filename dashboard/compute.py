@@ -332,9 +332,11 @@ def strategy_run(strategy_id, instrument):
 
 # assets shown down the side of the Strategy Matrix
 MATRIX_ASSETS = [
-    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD",
+    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD", "EURJPY",
     "XAUUSD", "XAGUSD", "USOIL", "NATGAS",
-    "SPX", "NDX", "BTCUSD", "ETHUSD",
+    "SPX", "NDX", "IWM", "DIA", "EEM", "TLT",
+    "AAPL", "MSFT", "NVDA", "TSLA",
+    "BTCUSD", "ETHUSD", "SOLUSD",
 ]
 
 

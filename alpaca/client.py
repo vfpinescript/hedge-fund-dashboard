@@ -28,12 +28,13 @@ def _load_env() -> None:
 
 
 class Alpaca:
-    def __init__(self):
+    def __init__(self, key=None, secret=None,
+                 key_env="ALPACA_API_KEY_ID", secret_env="ALPACA_API_SECRET_KEY"):
         _load_env()
-        self.key = os.environ.get("ALPACA_API_KEY_ID", "")
-        self.secret = os.environ.get("ALPACA_API_SECRET_KEY", "")
+        self.key = key or os.environ.get(key_env, "")
+        self.secret = secret or os.environ.get(secret_env, "")
         if not self.key or not self.secret:
-            raise RuntimeError("ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY not set in .env")
+            raise RuntimeError(f"{key_env} / {secret_env} not set in .env")
         self.h = {"APCA-API-KEY-ID": self.key, "APCA-API-SECRET-KEY": self.secret}
 
     # ---- account / positions / orders ----
