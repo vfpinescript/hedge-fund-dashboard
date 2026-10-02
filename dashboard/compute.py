@@ -324,6 +324,46 @@ MATRIX_ASSETS = [
 ]
 
 
+# out-of-sample tracking start: performance from here forward is the honest test
+FORWARD_START = "2026-07-01"
+
+
+def forward_test(start=FORWARD_START):
+    """Forward/out-of-sample test of EVERY strategy on EVERY asset since `start`.
+    Each combo's daily strategy return is recomputed from live data and measured
+    only over the out-of-sample window, so the leaderboard reflects what has held
+    up going forward, not what fit the backtest. Cached per process."""
+    if "forward" in _CACHE:
+        return _CACHE["forward"]
+    from quant.research.strategy_library import _strategy_returns, STRATEGIES
+    rows = []
+    for sid, spec in STRATEGIES.items():
+        for asset in MATRIX_ASSETS:
+            try:
+                strat, _ = _strategy_returns(spec, asset)
+                fwd = strat[strat.index >= start].dropna()
+                if len(fwd) < 10:
+                    continue
+                eq = (1 + fwd).cumprod()
+                tot = (eq.iloc[-1] - 1) * 100
+                sh = float(fwd.mean() / fwd.std() * np.sqrt(252)) if fwd.std() > 0 else 0.0
+                dn = fwd.copy(); dn[dn > 0] = 0.0
+                so = float(fwd.mean() / (dn.std() * np.sqrt(2)) * np.sqrt(252)) if dn.std() > 0 else 0.0
+                mdd = float((eq / eq.cummax() - 1).min()) * 100
+                rows.append({"strategy": spec["name"], "strategy_id": sid, "asset": asset,
+                             "days": len(fwd), "return": round(tot, 1),
+                             "sharpe": round(sh, 2), "sortino": round(so, 2),
+                             "max_dd": round(mdd, 1),
+                             "rr": round(tot / abs(mdd), 2) if mdd else None})
+            except Exception:
+                continue
+    rows.sort(key=lambda x: -x["sharpe"])
+    out = {"start": start, "n": len(rows),
+           "as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d"), "rows": rows}
+    _CACHE["forward"] = out
+    return out
+
+
 def strategy_matrix():
     """Every strategy applied to every tradeable asset at once — a grid of
     total return / Sharpe / Sortino / DSR per (asset, strategy). Cached."""

@@ -69,6 +69,14 @@ def api_strategy_matrix():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/forward_test")
+def api_forward_test():
+    try:
+        return jsonify(compute.forward_test())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/strategy_run")
 def api_strategy_run():
     try:

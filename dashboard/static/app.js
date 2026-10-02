@@ -16,9 +16,10 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
+  if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
   if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
   if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
@@ -226,6 +227,45 @@ function renderMatrix(){
   const body=document.getElementById("matrixBody");
   body.innerHTML=h;
   body.querySelectorAll("td.cell[data-strat]").forEach(td=>td.onclick=()=>openStrategy(td.dataset.strat, td.dataset.asset));
+}
+
+/* ---------- forward test ---------- */
+let FWD=null, FWD_SORT="sharpe";
+async function loadForward(){
+  const body=document.getElementById("forwardBody");
+  try{ FWD=await (await fetch("/api/forward_test")).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(FWD.error){ body.innerHTML=`<div class="loading">${FWD.error}</div>`; return; }
+  renderForward();
+}
+function renderForward(){
+  const rows=[...FWD.rows].sort((a,b)=> (b[FWD_SORT]??-1e9)-(a[FWD_SORT]??-1e9));
+  const days=FWD.rows[0]?FWD.rows[0].days:0;
+  const col=v=>v==null?"":v>=0?"var(--pos)":"var(--neg)";
+  const hd=(k,l)=>`<th class="sortable" data-k="${k}" style="cursor:pointer${FWD_SORT===k?';color:var(--gold)':''}">${l}${FWD_SORT===k?' ▾':''}</th>`;
+  let h=`<div class="card" style="padding:16px 18px;margin-bottom:16px">
+    <div style="display:flex;gap:28px;align-items:baseline;flex-wrap:wrap">
+      <div><div class="ml">Tracking since</div><div class="mv" style="font-size:16px">${FWD.start}</div></div>
+      <div><div class="ml">Out-of-sample days</div><div class="mv" style="font-size:16px">${days}</div></div>
+      <div><div class="ml">Combinations tracked</div><div class="mv" style="font-size:16px">${FWD.n}</div></div>
+      <div class="muted" style="font-size:12px;max-width:420px">Ranked by out-of-sample ${FWD_SORT}. Small samples so far: treat as accruing evidence, not proof.</div>
+    </div></div>
+    <div class="matrix-wrap"><table class="mtx" style="font-size:12.5px"><thead><tr>
+      <th class="rowhead corner">Strategy · Asset</th>${hd("return","Return %")}${hd("sharpe","Sharpe")}${hd("sortino","Sortino")}${hd("max_dd","Max DD %")}${hd("rr","Return/Risk")}<th>Days</th></tr></thead><tbody>`;
+  for(const r of rows){
+    h+=`<tr class="fwd-row" data-strat="${r.strategy_id}" data-asset="${r.asset}" style="cursor:pointer">
+      <td class="rowhead" style="min-width:230px">${r.strategy} · <b>${r.asset}</b></td>
+      <td class="cell num" style="color:${col(r.return)}">${r.return}%</td>
+      <td class="cell num" style="color:${col(r.sharpe)}">${r.sharpe}</td>
+      <td class="cell num" style="color:${col(r.sortino)}">${r.sortino}</td>
+      <td class="cell num" style="color:var(--neg)">${r.max_dd}%</td>
+      <td class="cell num">${r.rr==null?"–":r.rr}</td>
+      <td class="cell num muted">${r.days}</td></tr>`;
+  }
+  h+=`</tbody></table></div>`;
+  const body=document.getElementById("forwardBody"); body.innerHTML=h;
+  body.querySelectorAll("th.sortable").forEach(th=>th.onclick=()=>{ FWD_SORT=th.dataset.k; renderForward(); });
+  body.querySelectorAll("tr.fwd-row").forEach(tr=>tr.onclick=()=>openStrategy(tr.dataset.strat, tr.dataset.asset));
 }
 
 /* ---------- live paper ---------- */
