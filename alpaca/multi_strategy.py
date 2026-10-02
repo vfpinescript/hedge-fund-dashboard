@@ -23,6 +23,7 @@ from alpaca.client import Alpaca
 from alpaca.strategy import _closes, REVERSAL_WINDOW, VOL_WINDOW
 
 INVESTED = float(os.environ.get("INVESTED", "0.90"))   # fraction of equity deployed
+MAX_POS_PCT = float(os.environ.get("MAX_POS_PCT", "0.20"))   # cap any single name at 20% of equity
 MA_WINDOW = 200
 MIN_TRADE_DOLLARS = 50.0
 DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
@@ -179,7 +180,16 @@ def compute_combined(a=None):
     for d in (fx, lev, cry):
         for k, v in d.items():
             targets[k] = targets.get(k, 0.0) + v
+    # per-position concentration cap: no single name above MAX_POS_PCT of equity
+    cap_dollars = equity * MAX_POS_PCT
+    capped = []
+    for sym in list(targets):
+        px = prices.get(sym, 0)
+        if px and abs(targets[sym] * px) > cap_dollars:
+            targets[sym] = np.sign(targets[sym]) * cap_dollars / px
+            capped.append(sym)
     return {"equity": equity, "weights": {k: round(v, 3) for k, v in weights.items()},
+            "position_cap_pct": MAX_POS_PCT, "capped": capped,
             "correlations": corr, "book_vol": book_vol, "target_vol": TARGET_VOL,
             "vol_scale": round(vol_scale, 3), "invested": round(INVESTED * reg["exposure_scale"] * vol_scale, 3),
             "targets": targets, "prices": prices,
@@ -207,6 +217,7 @@ def plan(a=None):
     return {"equity": t["equity"], "weights": t["weights"], "correlations": t["correlations"],
             "book_vol": t["book_vol"], "target_vol": t["target_vol"], "vol_scale": t["vol_scale"],
             "invested": t["invested"], "regime": t["regime"],
+            "position_cap_pct": t["position_cap_pct"], "capped": t["capped"],
             "lev_regime": t["lev_regime"], "crypto_regime": t["crypto_regime"],
             "n_orders": len(orders), "orders": orders}
 
