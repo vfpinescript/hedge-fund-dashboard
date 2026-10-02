@@ -53,10 +53,21 @@ class Alpaca:
 
     def submit_order(self, symbol: str, qty: float, side: str,
                      type_: str = "market", tif: str = "day") -> dict:
-        """side: 'buy'|'sell'. qty in shares (fractional allowed for market/day)."""
+        """side: 'buy'|'sell'. qty in shares/coins (fractional allowed).
+        Crypto ('BTC/USD') must use time_in_force 'gtc'."""
+        if "/" in symbol:
+            tif = "gtc"
         body = {"symbol": symbol, "qty": str(qty), "side": side,
                 "type": type_, "time_in_force": tif}
         return requests.post(f"{PAPER_BASE}/v2/orders", headers=self.h, json=body, timeout=20).json()
+
+    def crypto_bars(self, symbols="BTC/USD,ETH/USD", days=400) -> dict:
+        import datetime as dt
+        start = (dt.datetime.utcnow() - dt.timedelta(days=days * 2)).strftime("%Y-%m-%d")
+        r = requests.get(f"{DATA_BASE}/v1beta3/crypto/us/bars", headers=self.h,
+                         params={"symbols": symbols, "timeframe": "1Day", "limit": 10000,
+                                 "start": start}, timeout=30).json()
+        return r.get("bars") or {}
 
     def close_position(self, symbol: str) -> dict:
         return requests.delete(f"{PAPER_BASE}/v2/positions/{symbol}", headers=self.h, timeout=20).json()
