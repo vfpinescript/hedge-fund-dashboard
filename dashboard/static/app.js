@@ -16,10 +16,11 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","forward","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","analytics","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
   if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
+  if(name==="analytics" && !window._anLoaded){ loadAnalytics(); window._anLoaded=1; }
   if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
   if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
@@ -266,6 +267,79 @@ function renderForward(){
   const body=document.getElementById("forwardBody"); body.innerHTML=h;
   body.querySelectorAll("th.sortable").forEach(th=>th.onclick=()=>{ FWD_SORT=th.dataset.k; renderForward(); });
   body.querySelectorAll("tr.fwd-row").forEach(tr=>tr.onclick=()=>openStrategy(tr.dataset.strat, tr.dataset.asset));
+}
+
+/* ---------- analytics (monte carlo + surfaces) ---------- */
+async function loadAnalytics(){
+  const lib=await (await fetch("/api/strategy_library")).json();
+  const sp=document.getElementById("anStrat");
+  sp.innerHTML=lib.strategies.map(s=>`<option value="${s.id}">${s.name}</option>`).join("");
+  if([...sp.options].some(o=>o.value==="reversal_7")) sp.value="reversal_7";
+  const ap=document.getElementById("anAsset");
+  let opts="";
+  for(const [g,syms] of Object.entries(lib.instrument_groups)) opts+=`<optgroup label="${g}">`+syms.map(s=>`<option value="${s}">${s}</option>`).join("")+`</optgroup>`;
+  ap.innerHTML=opts; ap.value="AUDUSD";
+  sp.onchange=renderAnalytics; ap.onchange=renderAnalytics;
+  renderAnalytics();
+}
+async function renderAnalytics(){
+  const strat=document.getElementById("anStrat").value, asset=document.getElementById("anAsset").value;
+  const body=document.getElementById("analyticsBody");
+  body.innerHTML=`<div class="loading">Running 2,000 Monte Carlo paths and computing surfaces for ${strat} on ${asset}…</div>`;
+  let a,S;
+  try{ [a,S]=await Promise.all([
+    fetch(`/api/analytics?strategy=${encodeURIComponent(strat)}&instrument=${encodeURIComponent(asset)}`).then(r=>r.json()),
+    fetch(`/api/surfaces?instrument=${encodeURIComponent(asset)}`).then(r=>r.json())
+  ]); }catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(a.error){ body.innerHTML=`<div class="loading">${a.error}</div>`; return; }
+  const mc=a.mc, col=v=>v>=0?"var(--pos)":"var(--neg)";
+  body.innerHTML=`
+    <div class="decision-banner">
+      <div><div class="ml">Median 1y return</div><div class="mv" style="font-size:24px;color:${col(mc.median_return_pct)}">${mc.median_return_pct>=0?"+":""}${mc.median_return_pct}%</div></div>
+      <div style="border-left:1px solid var(--line);padding-left:20px"><div class="ml">5th / 95th pct</div><div class="mv" style="font-size:18px">${mc.p5_return_pct}% / +${mc.p95_return_pct}%</div></div>
+      <div style="border-left:1px solid var(--line);padding-left:20px"><div class="ml">Chance of loss (1y)</div><div class="mv" style="font-size:18px;color:var(--warn)">${mc.prob_loss_pct}%</div></div>
+      <div style="border-left:1px solid var(--line);padding-left:20px"><div class="ml">Median / worst max DD</div><div class="mv" style="font-size:18px;color:var(--neg)">${mc.median_max_dd_pct}% / ${mc.worst_max_dd_pct}%</div></div>
+    </div>
+    <div class="card"><h3>Monte Carlo — range of 1-year outcomes</h3><div class="sub">2,000 block-bootstrap paths from the strategy's own daily returns. The shaded cone is the 5th to 95th percentile, the line is the median. A single backtest is just one of these paths.</div>
+      <div id="mcFan" style="height:380px"></div></div>
+    <div class="card-row">
+      <div class="card"><h3>Return Distribution</h3><div class="sub">Daily returns · skew ${a.dist.skew} · excess kurtosis ${(a.dist.kurt-3).toFixed(1)}</div><div id="anDist" style="height:260px"></div></div>
+      <div class="card"><h3>Rolling Sharpe</h3><div class="sub">126-day window</div><div id="anRS" style="height:260px"></div></div>
+    </div>
+    <div class="sec-title">3D Quant Surfaces · ${asset}</div>
+    <div class="surf-grid">
+      ${surfDiv("sTail","Tail-Exponent Surface","Hill index over window × order statistic — fat-tail risk")}
+      ${surfDiv("sVol","Volatility Surface","Implied vol over strike × expiry (SPY options)")}
+      ${surfDiv("sGamma","Gamma Surface","Option gamma over spot × maturity")}
+      ${surfDiv("sCharm","Charm Surface","Delta decay over spot × maturity")}
+    </div>`;
+  const days=[...Array(mc.days).keys()];
+  const band=(lo,hi,c)=>[
+    {x:days,y:mc.bands[hi],type:"scatter",mode:"lines",line:{width:0},showlegend:false,hoverinfo:"skip"},
+    {x:days,y:mc.bands[lo],type:"scatter",mode:"lines",line:{width:0},fill:"tonexty",fillcolor:c,showlegend:false,hoverinfo:"skip"}];
+  const traces=[...band("5","95","rgba(109,151,207,.12)"),...band("25","75","rgba(109,151,207,.22)"),
+    {x:days,y:mc.bands["50"],type:"scatter",mode:"lines",line:{color:"#6d97cf",width:2.4},name:"median"}];
+  (mc.sample_paths||[]).slice(0,18).forEach(p=>traces.push({x:days,y:p,type:"scatter",mode:"lines",line:{color:"#c6a15b",width:0.6},opacity:.22,showlegend:false,hoverinfo:"skip"}));
+  Plotly.newPlot("mcFan",traces,baseLayout({yaxis:{...axis,ticksuffix:"%"},xaxis:{...axis,title:"trading days forward"}}),PLOT_CFG);
+  const e=a.dist.edges, centers=e.slice(0,-1).map((x,i)=>(x+e[i+1])/2);
+  Plotly.newPlot("anDist",[{x:centers,y:a.dist.counts,type:"bar",marker:{color:"#6d97cf"}}],baseLayout({xaxis:{...axis,title:"daily return %"},bargap:0.02}),PLOT_CFG);
+  Plotly.newPlot("anRS",[{x:a.rolling_sharpe.dates,y:a.rolling_sharpe.values,type:"scatter",mode:"lines",line:{color:"#cf9f45",width:1.3}}],baseLayout({}),PLOT_CFG);
+  if(!S.error){
+    plotSurface("sTail",S.tail); plotSurface("sVol",S.vol,"Viridis");
+    plotSurface("sGamma",S.gamma); plotSurface("sCharm",S.charm,[[0,"#0b2b4a"],[.5,"#2a7de1"],[1,"#f9e07f"]]);
+  }
+}
+const SURF_SCALE=[[0,"#1a1140"],[.3,"#7a2a8f"],[.55,"#c73e6b"],[.78,"#f5844a"],[1,"#f9e07f"]];
+function surfDiv(id,title,sub){return `<div class="card"><h3>${title}</h3><div class="sub">${sub}</div><div id="${id}" style="height:340px"></div></div>`;}
+function plotSurface(id,Sf,scale){
+  const el=document.getElementById(id); if(!el) return;
+  if(!Sf){el.innerHTML=`<div class="loading">No data feed available — abstained.</div>`;return;}
+  Plotly.newPlot(id,[{type:"surface",x:Sf.x,y:Sf.y,z:Sf.z,colorscale:scale||SURF_SCALE,showscale:false,contours:{z:{show:true,usecolormap:true}}}],
+    {paper_bgcolor:"transparent",font:{color:"#7c8698",size:10},margin:{l:0,r:0,t:0,b:0},
+     scene:{xaxis:{title:Sf.xlabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
+       yaxis:{title:Sf.ylabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
+       zaxis:{title:Sf.zlabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
+       camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
 }
 
 /* ---------- live paper ---------- */

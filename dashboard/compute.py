@@ -330,6 +330,66 @@ def strategy_run(strategy_id, instrument):
     return run_strategy(strategy_id, (instrument or "").strip().upper())
 
 
+def analytics(strategy_id, instrument, horizon=252, n_paths=2000):
+    """Monte Carlo fan + return distribution + rolling Sharpe for one strategy
+    on one asset. The MC resamples the strategy's own daily returns (block
+    bootstrap, preserving vol clustering) to show the RANGE of 1-year outcomes,
+    not a single backtest line. It inherits the backtest's cost assumptions, so
+    treat it as the spread of possibilities, not a forecast."""
+    from quant.research.strategy_library import _strategy_returns, STRATEGIES
+    inst = (instrument or "").strip().upper()
+    spec = STRATEGIES.get(strategy_id)
+    if not spec:
+        return {"error": f"unknown strategy {strategy_id}"}
+    try:
+        strat, _ = _strategy_returns(spec, inst)
+    except Exception as e:
+        return {"error": f"could not load {inst}: {e}"}
+    r = strat.dropna().values
+    if len(r) < 250:
+        return {"error": f"insufficient history for {inst}"}
+
+    # block bootstrap, vectorised
+    rng = np.random.default_rng(7)
+    block = 20
+    n = len(r)
+    nblocks = int(np.ceil(horizon / block))
+    starts = rng.integers(0, n - block, size=(n_paths, nblocks))
+    idx = (starts[:, :, None] + np.arange(block)[None, None, :]).reshape(n_paths, nblocks * block)[:, :horizon]
+    sims = r[idx]                                   # (n_paths, horizon) daily returns
+    cum = np.cumprod(1 + sims, axis=1)              # wealth paths
+    bands = {str(p): (np.percentile(cum, p, axis=0) * 100 - 100).round(2).tolist()
+             for p in (5, 25, 50, 75, 95)}
+    final = cum[:, -1]
+    # drawdown distribution across paths
+    peak = np.maximum.accumulate(cum, axis=1)
+    mdd = (cum / peak - 1).min(axis=1)
+    samp = rng.integers(0, n_paths, size=30)
+    mc = {
+        "days": horizon, "bands": bands,
+        "sample_paths": [(cum[i] * 100 - 100).round(2).tolist() for i in samp],
+        "median_return_pct": round(float(np.median(final) - 1) * 100, 1),
+        "p5_return_pct": round(float(np.percentile(final, 5) - 1) * 100, 1),
+        "p95_return_pct": round(float(np.percentile(final, 95) - 1) * 100, 1),
+        "prob_loss_pct": round(float((final < 1).mean()) * 100, 1),
+        "median_max_dd_pct": round(float(np.median(mdd)) * 100, 1),
+        "worst_max_dd_pct": round(float(np.percentile(mdd, 5)) * 100, 1),
+    }
+    # return distribution histogram (daily, %)
+    counts, edges = np.histogram(r * 100, bins=60)
+    dist = {"counts": counts.tolist(), "edges": edges.round(3).tolist(),
+            "mean": round(float(r.mean()) * 100, 3), "std": round(float(r.std()) * 100, 3),
+            "skew": round(float(((r - r.mean()) ** 3).mean() / (r.std() ** 3 + 1e-12)), 2),
+            "kurt": round(float(((r - r.mean()) ** 4).mean() / (r.std() ** 4 + 1e-12)), 2)}
+    # rolling Sharpe
+    s = strat.dropna()
+    rs = (s.rolling(126).mean() / s.rolling(126).std() * np.sqrt(252)).dropna()
+    rolling_sharpe = {"dates": [d.strftime("%Y-%m-%d") for d in rs.index],
+                      "values": rs.values.round(3).tolist()}
+    return {"strategy": spec["name"], "instrument": inst,
+            "mc": mc, "dist": dist, "rolling_sharpe": rolling_sharpe}
+
+
 # assets shown down the side of the Strategy Matrix
 MATRIX_ASSETS = [
     "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD", "EURJPY",

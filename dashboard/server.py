@@ -77,6 +77,15 @@ def api_forward_test():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/analytics")
+def api_analytics():
+    try:
+        return jsonify(compute.analytics(request.args.get("strategy"),
+                                         request.args.get("instrument")))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/strategy_run")
 def api_strategy_run():
     try:

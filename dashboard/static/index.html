@@ -35,6 +35,8 @@
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M6 2v12M10 2v12M2 6h12M2 10h12"/></svg>Strategy Matrix</button>
       <button class="tab" data-tab="forward">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 13l4-5 3 3 5-7"/><path d="M11 4h3v3"/></svg>Forward Test</button>
+      <button class="tab" data-tab="analytics">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 14V2M2 14h12"/><path d="M4 11c3-6 5 2 8-5"/><path d="M4 8c2-3 4 1 6-2" opacity=".5"/></svg>Analytics</button>
       <button class="tab" data-tab="signals">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 1.5"/></svg>Live Signals</button>
       <button class="tab" data-tab="lab">
@@ -100,6 +102,21 @@
           </div>
         </div>
         <div id="forwardBody"><div class="loading">Computing out-of-sample performance for every combination…</div></div>
+      </section>
+
+      <!-- ANALYTICS -->
+      <section class="view hidden" id="view-analytics">
+        <div class="signals-head">
+          <div>
+            <h2>Analytics</h2>
+            <p>Monte Carlo cones (the range of 1-year outcomes, not a single backtest line), the return distribution, rolling Sharpe, and the 3D quant surfaces. The Monte Carlo resamples the strategy's own returns, so it shows the spread of possibilities, not a forecast.</p>
+          </div>
+          <div style="display:flex;gap:10px">
+            <select id="anStrat" class="select"></select>
+            <select id="anAsset" class="select"></select>
+          </div>
+        </div>
+        <div id="analyticsBody"><div class="loading">Select a strategy and asset…</div></div>
       </section>
 
       <!-- LIVE PAPER -->
