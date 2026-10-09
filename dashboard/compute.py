@@ -314,6 +314,10 @@ def live_paper():
             "target_vol": cc["target_vol"], "vol_scale": cc["vol_scale"],
             "invested": cc["invested"], "lev_regime": cc["lev_regime"],
             "crypto_regime": cc["crypto_regime"],
+            "crypto_risk_cap": cc.get("crypto_risk_cap"),
+            "crypto_risk_before": cc.get("crypto_risk_before"),
+            "crypto_risk_after": cc.get("crypto_risk_after"),
+            "crypto_scale": cc.get("crypto_scale"),
         }
     except Exception as e:
         snap["book"] = {"error": str(e)[:100]}

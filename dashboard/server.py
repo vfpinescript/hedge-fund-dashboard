@@ -8,16 +8,38 @@ real market data via the quant engine.
 """
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
+from flask.json.provider import DefaultJSONProvider
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dashboard import compute
 
+
+def _json_safe(obj):
+    """Recursively replace NaN/Infinity floats with None so the payload is
+    valid JSON (JSON has no NaN token; browsers' JSON.parse rejects it)."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
+class SafeJSONProvider(DefaultJSONProvider):
+    """Serializes non-finite floats (NaN/Inf) as null across every endpoint."""
+    def dumps(self, obj, **kwargs):
+        return super().dumps(_json_safe(obj), **kwargs)
+
+
 HERE = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=str(HERE / "static"), static_url_path="/static")
+app.json = SafeJSONProvider(app)
 
 
 @app.route("/")

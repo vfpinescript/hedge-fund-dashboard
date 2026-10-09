@@ -24,6 +24,13 @@ from alpaca.strategy import _closes, REVERSAL_WINDOW, VOL_WINDOW
 
 INVESTED = float(os.environ.get("INVESTED", "0.90"))   # fraction of equity deployed
 MAX_POS_PCT = float(os.environ.get("MAX_POS_PCT", "0.20"))   # cap any single name at 20% of equity
+# Live-risk cap on the crypto sleeve. ERC weights the three sleeves by their
+# STRATEGY return series, but the crypto trend sleeve sits in cash much of the
+# time, so that series understates the risk of actually HOLDING BTC/ETH. When
+# crypto is "on" it is a full-vol directional long and can dominate book risk
+# (observed ~65% of risk off ~22% of capital). This caps crypto's share of the
+# book's gross directional risk, de-levering it toward the cap (never up).
+CRYPTO_RISK_CAP = float(os.environ.get("CRYPTO_RISK_CAP", "0.40"))
 MA_WINDOW = 200
 MIN_TRADE_DOLLARS = 50.0
 DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
@@ -149,6 +156,38 @@ def _crypto_sleeve(a, gross, prices):
     return tgt, regime
 
 
+def _recent_vols(a, days=60):
+    """Annualized realized vol per candidate symbol, for the risk-concentration
+    control. Cheap trailing estimate; correlations are ignored (conservative)."""
+    vols = {}
+    try:
+        px = _closes(a)
+        v = (px.pct_change().rolling(VOL_WINDOW).std().iloc[-1] * np.sqrt(252))
+        for s in v.index:
+            if np.isfinite(v[s]):
+                vols[s] = float(v[s])
+    except Exception:
+        pass
+    try:
+        bars = a.daily_bars("SPY", days=days)
+        c = np.array([b["c"] for b in bars], dtype=float)
+        spyvol = float(np.std(np.diff(c) / c[:-1]) * np.sqrt(252))
+        vols["SSO"] = 2 * spyvol      # SSO is 2x SPY
+        vols["BIL"] = 0.01            # cash-like
+    except Exception:
+        pass
+    try:
+        cb = a.crypto_bars(days=days)
+        for psym, osym in CRYPTO_ORDER.items():   # psym=BTCUSD, osym=BTC/USD
+            b = cb.get(osym) or []
+            if len(b) > 5:
+                c = np.array([x["c"] for x in b], dtype=float)
+                vols[psym] = float(np.std(np.diff(c) / c[:-1]) * np.sqrt(252))
+    except Exception:
+        pass
+    return vols
+
+
 def _regime(a):
     """Equity regime (jump model on SPY): turbulent -> scale the whole book down."""
     try:
@@ -180,6 +219,35 @@ def compute_combined(a=None):
     for d in (fx, lev, cry):
         for k, v in d.items():
             targets[k] = targets.get(k, 0.0) + v
+
+    # ---- risk-concentration control: keep the crypto sleeve from dominating ----
+    # Estimate each name's gross risk (|notional| * annualized vol) and, if the
+    # crypto names together exceed CRYPTO_RISK_CAP of the book's gross risk,
+    # scale crypto DOWN to the cap (de-lever only). Solved exactly: scaling
+    # crypto notionals by f sends crypto risk from Rc to f*Rc and gross to
+    # (G - Rc) + f*Rc; setting that ratio to the cap gives the f below.
+    vols = _recent_vols(a)
+    crypto_syms = [s for s in targets if s in CRYPTO_ORDER]
+    crypto_scale = 1.0
+    crypto_risk_before = crypto_risk_after = None
+    if crypto_syms and vols:
+        def _risk(sym):
+            return abs(targets.get(sym, 0.0)) * prices.get(sym, 0.0) * vols.get(sym, 0.0)
+        gross = sum(_risk(s) for s in targets)
+        rc = sum(_risk(s) for s in crypto_syms)
+        if gross > 0:
+            crypto_risk_before = round(rc / gross, 3)
+            if rc > 0 and rc / gross > CRYPTO_RISK_CAP:
+                cap = CRYPTO_RISK_CAP
+                f = cap * (gross - rc) / (rc * (1.0 - cap))
+                crypto_scale = float(np.clip(f, 0.0, 1.0))
+                for s in crypto_syms:
+                    targets[s] *= crypto_scale
+                new_rc = rc * crypto_scale
+                crypto_risk_after = round(new_rc / ((gross - rc) + new_rc), 3)
+            else:
+                crypto_risk_after = crypto_risk_before
+
     # per-position concentration cap: no single name above MAX_POS_PCT of equity
     cap_dollars = equity * MAX_POS_PCT
     capped = []
@@ -190,6 +258,8 @@ def compute_combined(a=None):
             capped.append(sym)
     return {"equity": equity, "weights": {k: round(v, 3) for k, v in weights.items()},
             "position_cap_pct": MAX_POS_PCT, "capped": capped,
+            "crypto_risk_cap": CRYPTO_RISK_CAP, "crypto_scale": round(crypto_scale, 3),
+            "crypto_risk_before": crypto_risk_before, "crypto_risk_after": crypto_risk_after,
             "correlations": corr, "book_vol": book_vol, "target_vol": TARGET_VOL,
             "vol_scale": round(vol_scale, 3), "invested": round(INVESTED * reg["exposure_scale"] * vol_scale, 3),
             "targets": targets, "prices": prices,
@@ -218,6 +288,8 @@ def plan(a=None):
             "book_vol": t["book_vol"], "target_vol": t["target_vol"], "vol_scale": t["vol_scale"],
             "invested": t["invested"], "regime": t["regime"],
             "position_cap_pct": t["position_cap_pct"], "capped": t["capped"],
+            "crypto_risk_cap": t["crypto_risk_cap"], "crypto_scale": t["crypto_scale"],
+            "crypto_risk_before": t["crypto_risk_before"], "crypto_risk_after": t["crypto_risk_after"],
             "lev_regime": t["lev_regime"], "crypto_regime": t["crypto_regime"],
             "n_orders": len(orders), "orders": orders}
 
