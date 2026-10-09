@@ -206,6 +206,14 @@ input.select::placeholder{color:var(--faint)}
 .labtable tbody tr:hover{background:var(--panel-2)}
 .labtable + .muted{padding:0 2px}
 
+/* forward-test chart modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(6,9,14,.72);backdrop-filter:blur(3px);
+  z-index:50;display:flex;align-items:center;justify-content:center;padding:28px}
+.modal-card{background:var(--panel);border:1px solid var(--line-2);border-radius:14px;
+  width:min(920px,96vw);max-height:90vh;overflow:auto;box-shadow:0 24px 80px rgba(0,0,0,.55);padding:22px 24px}
+.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:6px}
+.modal-head h2{margin:0 0 3px}
+
 @media(max-width:1180px){
   .mgrid{grid-template-columns:repeat(3,1fr)}
   .card-row,.surf-grid{grid-template-columns:1fr}

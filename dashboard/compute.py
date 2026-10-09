@@ -324,6 +324,58 @@ def live_paper():
     return snap
 
 
+def desk_accounts():
+    """The two additional Alpaca paper desks, each a separate account running one
+    strategy: Trend (MA timing on SPY/QQQ/BTC/ETH) and Reversal (7d L/S on equity
+    ETFs). One snapshot per desk for the Live Paper page. Not cached."""
+    import datetime as _dt
+    from alpaca.client import Alpaca
+    from alpaca.desks import DESKS, ma_timing_targets, reversal_targets
+    START = {"trend": 50000.0, "reversal": 100000.0}
+    LABEL = {"trend": "Trend Desk · MA Timing", "reversal": "Reversal Desk · 7d Long/Short"}
+    out = []
+    for name, cfg in DESKS.items():
+        d = {"name": name, "label": LABEL.get(name, name), "strategy": cfg["strategy"],
+             "assets": cfg["assets"], "start_equity": START.get(name)}
+        try:
+            a = Alpaca(key_env=cfg["key_env"], secret_env=cfg["secret_env"])
+            acct = a.account()
+            equity = float(acct.get("equity", 0))
+            positions = []
+            for p in a.positions():
+                qty = float(p["qty"])
+                positions.append({
+                    "symbol": p["symbol"], "side": "long" if qty >= 0 else "short",
+                    "qty": abs(qty), "avgPrice": float(p["avg_entry_price"]),
+                    "lastPrice": float(p["current_price"]), "pl": float(p["unrealized_pl"]),
+                    "plPercent": float(p["unrealized_plpc"]) * 100})
+            hist = []
+            try:
+                ph = a.portfolio_history(period="1M", timeframe="1D")
+                for t, eqv in zip(ph.get("timestamp") or [], ph.get("equity") or []):
+                    if eqv:
+                        hist.append({"date": _dt.datetime.utcfromtimestamp(int(t)).strftime("%Y-%m-%d"),
+                                     "equity": float(eqv)})
+            except Exception:
+                pass
+            start_eq = d["start_equity"] or (hist[0]["equity"] if hist else equity)
+            try:
+                if cfg["strategy"] == "ma_timing":
+                    _, note = ma_timing_targets(a, cfg["assets"], cfg["gross"], equity)
+                else:
+                    _, note = reversal_targets(a, cfg["assets"], cfg["gross"], equity)
+            except Exception:
+                note = None
+            d.update({"ok": True, "equity": equity, "cash": float(acct.get("cash", 0)),
+                      "unrealizedPnl": sum(p["pl"] for p in positions),
+                      "return_pct": round((equity / start_eq - 1) * 100, 2) if start_eq else None,
+                      "positions": positions, "history": hist, "note": note})
+        except Exception as e:
+            d.update({"ok": False, "error": str(e)[:140]})
+        out.append(d)
+    return {"desks": out}
+
+
 def strategy_library():
     from quant.research.strategy_library import library
     return library()
@@ -442,6 +494,41 @@ def forward_test(start=FORWARD_START):
            "as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d"), "rows": rows}
     _CACHE["forward"] = out
     return out
+
+
+def forward_series(strategy_id, instrument, start=FORWARD_START):
+    """Out-of-sample equity curve of ONE strategy on ONE asset since `start`.
+    This is the forward test drawn as a line (strategy vs buy & hold), measured
+    only on data after the tracking start — not the in-sample backtest."""
+    from quant.research.strategy_library import _strategy_returns, STRATEGIES
+    inst = (instrument or "").strip().upper()
+    spec = STRATEGIES.get(strategy_id)
+    if not spec:
+        return {"error": f"unknown strategy {strategy_id}"}
+    try:
+        strat, bench = _strategy_returns(spec, inst)
+    except Exception as e:
+        return {"error": f"could not compute {strategy_id} on {inst}: {str(e)[:80]}"}
+    fwd = strat[strat.index >= start].dropna()
+    if len(fwd) < 2:
+        return {"error": "not enough out-of-sample data yet for this combination"}
+    bh = bench.reindex(fwd.index).fillna(0.0)
+    eq = (1 + fwd).cumprod()
+    bheq = (1 + bh).cumprod()
+    dn = fwd.copy(); dn[dn > 0] = 0.0
+    tot = float((eq.iloc[-1] - 1) * 100)
+    sh = float(fwd.mean() / fwd.std() * np.sqrt(252)) if fwd.std() > 0 else 0.0
+    so = float(fwd.mean() / (dn.std() * np.sqrt(2)) * np.sqrt(252)) if dn.std() > 0 else 0.0
+    mdd = float((eq / eq.cummax() - 1).min()) * 100
+    return {
+        "strategy": spec["name"], "strategy_id": strategy_id, "asset": inst,
+        "start": start, "days": len(fwd),
+        "dates": [d.strftime("%Y-%m-%d") for d in fwd.index],
+        "equity_pct": [round(float(v - 1) * 100, 2) for v in eq],
+        "benchmark_pct": [round(float(v - 1) * 100, 2) for v in bheq],
+        "return": round(tot, 1), "sharpe": round(sh, 2),
+        "sortino": round(so, 2), "max_dd": round(mdd, 1),
+    }
 
 
 def strategy_matrix():

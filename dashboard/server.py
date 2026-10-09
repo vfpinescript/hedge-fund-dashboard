@@ -99,6 +99,15 @@ def api_forward_test():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/forward_series")
+def api_forward_series():
+    try:
+        return jsonify(compute.forward_series(request.args.get("strategy"),
+                                              request.args.get("instrument")))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/analytics")
 def api_analytics():
     try:
@@ -121,6 +130,14 @@ def api_strategy_run():
 def api_live():
     try:
         return jsonify(compute.live_paper())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/desks")
+def api_desks():
+    try:
+        return jsonify(compute.desk_accounts())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

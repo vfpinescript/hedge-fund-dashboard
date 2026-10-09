@@ -266,7 +266,46 @@ function renderForward(){
   h+=`</tbody></table></div>`;
   const body=document.getElementById("forwardBody"); body.innerHTML=h;
   body.querySelectorAll("th.sortable").forEach(th=>th.onclick=()=>{ FWD_SORT=th.dataset.k; renderForward(); });
-  body.querySelectorAll("tr.fwd-row").forEach(tr=>tr.onclick=()=>openStrategy(tr.dataset.strat, tr.dataset.asset));
+  body.querySelectorAll("tr.fwd-row").forEach(tr=>tr.onclick=()=>openForwardChart(tr.dataset.strat, tr.dataset.asset));
+}
+
+/* forward-test chart modal — shows the out-of-sample equity curve since the
+   tracking start (NOT the in-sample backtest). */
+function closeFwdModal(){ document.getElementById("fwdModal").classList.add("hidden"); }
+document.getElementById("fwdModalClose").onclick=closeFwdModal;
+document.getElementById("fwdModal").onclick=e=>{ if(e.target.id==="fwdModal") closeFwdModal(); };
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeFwdModal(); });
+
+async function openForwardChart(strat, asset){
+  const modal=document.getElementById("fwdModal");
+  const body=document.getElementById("fwdModalBody");
+  document.getElementById("fwdModalTitle").textContent="Forward Test";
+  document.getElementById("fwdModalSub").textContent="Out-of-sample equity since tracking start";
+  body.innerHTML=`<div class="loading">Loading forward test for ${asset}…</div>`;
+  modal.classList.remove("hidden");
+  let d;
+  try{ d=await (await fetch(`/api/forward_series?strategy=${encodeURIComponent(strat)}&instrument=${encodeURIComponent(asset)}`)).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  document.getElementById("fwdModalTitle").textContent=`${d.strategy} · ${d.asset}`;
+  document.getElementById("fwdModalSub").textContent=`Out-of-sample since ${d.start} · ${d.days} trading days · net of costs`;
+  const col=v=>v>=0?"var(--pos)":"var(--neg)";
+  body.innerHTML=`
+    <div class="mrow" style="display:flex;gap:26px;flex-wrap:wrap;margin:4px 0 14px">
+      <div class="metric"><div class="ml">Forward Return</div><div class="mv" style="color:${col(d.return)}">${d.return}%</div></div>
+      <div class="metric"><div class="ml">Forward Sharpe</div><div class="mv" style="color:${col(d.sharpe)}">${d.sharpe}</div></div>
+      <div class="metric"><div class="ml">Forward Sortino</div><div class="mv" style="color:${col(d.sortino)}">${d.sortino}</div></div>
+      <div class="metric"><div class="ml">Max Drawdown</div><div class="mv red">${d.max_dd}%</div></div>
+    </div>
+    <div id="fwdChart" style="height:400px"></div>
+    <p class="muted" style="font-size:12px;margin-top:10px">Gold is the strategy; the faint dashed line is buy &amp; hold on the same asset over the same window. This is the honest out-of-sample record since ${d.start}, a small sample so far, not the backtest.</p>`;
+  Plotly.newPlot("fwdChart",[
+    {x:d.dates,y:d.benchmark_pct,type:"scatter",mode:"lines",name:"Buy & Hold",
+      line:{color:"#5a6677",width:1.2,dash:"dash"}},
+    {x:d.dates,y:d.equity_pct,type:"scatter",mode:"lines",name:d.strategy,
+      line:{color:"#cf9f45",width:2}},
+  ],baseLayout({yaxis:{...axis,ticksuffix:"%"},showlegend:true,
+    legend:{orientation:"h",y:1.08,x:0,font:{size:11}}}),PLOT_CFG);
 }
 
 /* ---------- analytics (monte carlo + surfaces) ---------- */
@@ -453,7 +492,8 @@ async function loadLive(){
       <div class="card"><h3>Trade Log</h3><div class="sub">Recent executions</div>
         <div style="overflow-x:auto"><table class="labtable"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr></thead>
         <tbody>${trades||`<tr><td colspan=4 class="muted">No trades yet.</td></tr>`}</tbody></table></div></div>
-    </div>`;
+    </div>
+    <div id="desksPanel" style="margin-top:8px"><div class="loading">Loading the other paper desks…</div></div>`;
 
   const h=d.history||[];
   if(h.length){
@@ -463,6 +503,64 @@ async function loadLive(){
       fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)"}],
       baseLayout({yaxis:{...axis,ticksuffix:"%"}}),PLOT_CFG);
   } else { document.getElementById("liveEq").innerHTML=`<div class="loading">Equity history builds daily — check back after the next scheduled run.</div>`; }
+
+  loadDesks();
+}
+
+/* ---------- other paper desks (accounts 2 & 3) ---------- */
+async function loadDesks(){
+  const panel=document.getElementById("desksPanel");
+  if(!panel) return;
+  let d;
+  try{ d=await (await fetch("/api/desks")).json(); }
+  catch(e){ panel.innerHTML=`<div class="card"><div class="muted">Other desks unavailable: ${e}</div></div>`; return; }
+  const desks=(d&&d.desks)||[];
+  if(!desks.length){ panel.innerHTML=""; return; }
+  const col=v=>v>=0?"var(--green)":"var(--red)";
+  let html=`<div style="margin:22px 2px 10px"><h2 style="margin:0">Other Paper Desks</h2>
+    <p class="muted" style="margin:3px 0 0;font-size:12.5px">Two more Alpaca paper accounts, each a separate book running one strategy. Same honest forward test, different mandate.</p></div>
+    <div class="card-row">`;
+  desks.forEach((k,i)=>{
+    if(!k.ok){
+      html+=`<div class="card"><h3>${k.label||k.name}</h3>
+        <div class="sub" style="padding-bottom:14px">Snapshot unavailable: ${k.error||"account read failed"}</div></div>`;
+      return;
+    }
+    const ret=k.return_pct, rc=col(ret||0);
+    const posRows=(k.positions||[]).map(p=>{
+      const c=col(p.pl||0), sc=p.side==="long"?"var(--green)":"var(--red)";
+      return `<tr><td>${p.symbol}</td><td style="color:${sc};font-weight:700">${p.side.toUpperCase()}</td>
+        <td class="num">${(p.qty||0).toLocaleString(undefined,{maximumFractionDigits:4})}</td>
+        <td class="num" style="color:${c}">${usd(p.pl)}</td>
+        <td class="num" style="color:${c}">${((p.plPercent||0)>=0?"+":"")}${(p.plPercent||0).toFixed(2)}%</td></tr>`;
+    }).join("");
+    html+=`<div class="card"><h3>${k.label}</h3>
+      <div class="sub">${(k.assets||[]).join(" · ")}${k.note?` &nbsp;·&nbsp; <span style="color:var(--gold)">${k.note}</span>`:""}</div>
+      <div style="padding:12px 18px 6px">
+        <div class="mgrid" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="metric"><div class="ml">Equity</div><div class="mv">${usd(k.equity)}</div></div>
+          <div class="metric"><div class="ml">Return</div><div class="mv" style="color:${rc}">${ret!=null?(ret>=0?"+":"")+ret.toFixed(2)+"%":"—"}</div></div>
+          <div class="metric"><div class="ml">Unrealized</div><div class="mv" style="color:${col(k.unrealizedPnl||0)}">${usd(k.unrealizedPnl)}</div></div>
+        </div>
+        <div id="deskEq${i}" style="height:150px;margin-top:6px"></div>
+        <div style="overflow-x:auto;margin-top:6px"><table class="labtable"><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>P&L</th><th>P&L&nbsp;%</th></tr></thead>
+        <tbody>${posRows||`<tr><td colspan=5 class="muted">No open positions.</td></tr>`}</tbody></table></div>
+      </div></div>`;
+  });
+  html+=`</div>`;
+  panel.innerHTML=html;
+  desks.forEach((k,i)=>{
+    if(!k.ok) return;
+    const h=k.history||[], el=document.getElementById("deskEq"+i);
+    if(!el) return;
+    const base=k.start_equity||(h[0]&&h[0].equity)||k.equity;
+    if(h.length>1){
+      Plotly.newPlot("deskEq"+i,[{x:h.map(x=>x.date),y:h.map(x=>(x.equity/base-1)*100),
+        type:"scatter",mode:"lines",line:{color:"#6d97cf",width:2},
+        fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)"}],
+        baseLayout({yaxis:{...axis,ticksuffix:"%"},margin:{l:40,r:10,t:8,b:24}}),PLOT_CFG);
+    } else { el.innerHTML=`<div class="loading" style="font-size:12px">Equity history builds daily.</div>`; }
+  });
 }
 
 /* ---------- strategy lab ---------- */
