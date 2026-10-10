@@ -9,13 +9,36 @@ real market data via the quant engine.
 from __future__ import annotations
 
 import math
+import os
 import sys
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+
+def _load_dotenv(path):
+    """Minimal .env loader (no dependency) so the app has its API keys no matter
+    how it is launched (gunicorn, the IDE preview panel, a bare python call).
+    Only fills keys that are not already set in the environment."""
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip().strip('"').strip("'")
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except FileNotFoundError:
+        pass
+
+
+_load_dotenv(ROOT / ".env")
+
 from dashboard import compute
 
 
