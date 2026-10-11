@@ -484,6 +484,8 @@ async function loadLive(){
             <div class="metric"><div class="ml">Switches / yr</div><div class="mv">${reg.switches_per_year??"—"}</div></div>
             <div class="metric"><div class="ml">Book vol (ann)</div><div class="mv">${bk.book_vol!=null?(bk.book_vol*100).toFixed(1)+"%":"—"}</div></div>
             <div class="metric"><div class="ml">Net invested</div><div class="mv">${bk.invested!=null?(bk.invested*100).toFixed(0)+"%":"—"}</div></div>
+            <div class="metric"><div class="ml">Anomaly score</div><div class="mv" style="color:${bk.anomaly_flag?'var(--red)':(bk.anomaly_score!=null&&bk.anomaly_score>=(bk.anomaly_threshold||0.95)?'var(--amber)':'var(--green)')}">${bk.anomaly_score!=null?(bk.anomaly_score*100).toFixed(0)+"%":"—"}</div></div>
+            <div class="metric"><div class="ml">Anomaly de-risk</div><div class="mv">${bk.anomaly_scale!=null?"×"+bk.anomaly_scale:"×1"}</div></div>
           </div></div></div>
       <div class="card"><h3>Sleeve Weights</h3><div class="sub">Equal risk contribution across uncorrelated sleeves</div>
         <div style="padding:14px 18px 18px">

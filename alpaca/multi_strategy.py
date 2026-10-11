@@ -31,6 +31,13 @@ MAX_POS_PCT = float(os.environ.get("MAX_POS_PCT", "0.20"))   # cap any single na
 # (observed ~65% of risk off ~22% of capital). This caps crypto's share of the
 # book's gross directional risk, de-levering it toward the cap (never up).
 CRYPTO_RISK_CAP = float(os.environ.get("CRYPTO_RISK_CAP", "0.40"))
+# Anomaly de-risk: when today's cross-sectional move across the book is in the
+# top (1 - ANOMALY_TRIGGER) most-extreme of the last year (robust Mahalanobis /
+# chi-square score), scale the whole book down toward ANOMALY_FLOOR. De-lever
+# only, never up. Complements the jump-model regime; off by setting DERISK=0.
+ANOMALY_DERISK = os.environ.get("ANOMALY_DERISK", "1") != "0"
+ANOMALY_TRIGGER = float(os.environ.get("ANOMALY_TRIGGER", "0.95"))   # score above this starts de-levering
+ANOMALY_FLOOR = float(os.environ.get("ANOMALY_FLOOR", "0.50"))       # most we cut the book to
 MA_WINDOW = 200
 MIN_TRADE_DOLLARS = 50.0
 DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
@@ -188,6 +195,36 @@ def _recent_vols(a, days=60):
     return vols
 
 
+def _market_anomaly(a):
+    """Cross-sectional anomaly score of today's joint move across the book's
+    assets (FX ETFs + SPY + BTC/ETH), via the robust MCD Mahalanobis distance.
+    Returns the market_anomaly() dict (score in 0..1); report-only here."""
+    try:
+        from quant.risk.anomaly import market_anomaly
+        panel = {}
+        px = _closes(a)
+        for c in px.columns:
+            panel[c] = px[c].pct_change()
+        try:
+            spy = a.daily_bars("SPY", days=220)
+            panel["SPY"] = pd.Series([b["c"] for b in spy],
+                                     index=pd.to_datetime([b["t"][:10] for b in spy])).pct_change()
+        except Exception:
+            pass
+        try:
+            cb = a.crypto_bars(days=220)
+            for psym, osym in CRYPTO_ORDER.items():
+                b = cb.get(osym) or []
+                if b:
+                    panel[psym] = pd.Series([x["c"] for x in b],
+                                            index=pd.to_datetime([x["t"][:10] for x in b])).pct_change()
+        except Exception:
+            pass
+        return market_anomaly(pd.DataFrame(panel))
+    except Exception as e:
+        return {"ok": False, "reason": str(e)[:60]}
+
+
 def _regime(a):
     """Equity regime (jump model on SPY): turbulent -> scale the whole book down."""
     try:
@@ -210,7 +247,14 @@ def compute_combined(a=None):
     vol_scale = 1.0
     if book_vol and book_vol > 0:
         vol_scale = float(np.clip(TARGET_VOL / book_vol, 0.3, 1.0))
-    budget = equity * INVESTED * reg["exposure_scale"] * vol_scale
+    # anomaly de-risk overlay: cut the book when today's joint move is extreme
+    anom = _market_anomaly(a)
+    anomaly_score = round(float(anom["score"]), 3) if anom.get("ok") else None
+    anomaly_scale = 1.0
+    if ANOMALY_DERISK and anom.get("ok") and anomaly_score > ANOMALY_TRIGGER:
+        frac = (anomaly_score - ANOMALY_TRIGGER) / (1.0 - ANOMALY_TRIGGER)
+        anomaly_scale = float(np.clip(1.0 - frac * (1.0 - ANOMALY_FLOOR), ANOMALY_FLOOR, 1.0))
+    budget = equity * INVESTED * reg["exposure_scale"] * vol_scale * anomaly_scale
     prices = {}
     fx = _fx_targets(a, budget * weights["fx"], prices)
     lev, lev_regime = _leverage_sleeve(a, budget * weights["leverage"], prices)
@@ -261,7 +305,11 @@ def compute_combined(a=None):
             "crypto_risk_cap": CRYPTO_RISK_CAP, "crypto_scale": round(crypto_scale, 3),
             "crypto_risk_before": crypto_risk_before, "crypto_risk_after": crypto_risk_after,
             "correlations": corr, "book_vol": book_vol, "target_vol": TARGET_VOL,
-            "vol_scale": round(vol_scale, 3), "invested": round(INVESTED * reg["exposure_scale"] * vol_scale, 3),
+            "vol_scale": round(vol_scale, 3),
+            "anomaly_score": anomaly_score, "anomaly_scale": round(anomaly_scale, 3),
+            "anomaly_threshold": ANOMALY_TRIGGER,
+            "anomaly_flag": bool(anom.get("is_anomalous")) if anom.get("ok") else None,
+            "invested": round(INVESTED * reg["exposure_scale"] * vol_scale * anomaly_scale, 3),
             "targets": targets, "prices": prices,
             "regime": reg, "lev_regime": lev_regime, "crypto_regime": cry_regime}
 
@@ -290,6 +338,8 @@ def plan(a=None):
             "position_cap_pct": t["position_cap_pct"], "capped": t["capped"],
             "crypto_risk_cap": t["crypto_risk_cap"], "crypto_scale": t["crypto_scale"],
             "crypto_risk_before": t["crypto_risk_before"], "crypto_risk_after": t["crypto_risk_after"],
+            "anomaly_score": t["anomaly_score"], "anomaly_scale": t["anomaly_scale"],
+            "anomaly_threshold": t["anomaly_threshold"], "anomaly_flag": t["anomaly_flag"],
             "lev_regime": t["lev_regime"], "crypto_regime": t["crypto_regime"],
             "n_orders": len(orders), "orders": orders}
 

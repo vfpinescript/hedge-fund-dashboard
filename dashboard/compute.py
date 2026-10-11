@@ -318,6 +318,10 @@ def live_paper():
             "crypto_risk_before": cc.get("crypto_risk_before"),
             "crypto_risk_after": cc.get("crypto_risk_after"),
             "crypto_scale": cc.get("crypto_scale"),
+            "anomaly_score": cc.get("anomaly_score"),
+            "anomaly_scale": cc.get("anomaly_scale"),
+            "anomaly_threshold": cc.get("anomaly_threshold"),
+            "anomaly_flag": cc.get("anomaly_flag"),
         }
     except Exception as e:
         snap["book"] = {"error": str(e)[:100]}
