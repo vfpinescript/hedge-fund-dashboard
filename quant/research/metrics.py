@@ -18,6 +18,17 @@ import numpy as np
 import pandas as pd
 
 
+def _safe_ratio(ann_mean, ann_denom, floor: float = 1e-6, cap: float = 50.0):
+    """Sharpe/Sortino with degenerate-series protection. A near-constant return
+    series has ~0 variance, which otherwise yields an absurd ratio like 9e16 (a
+    pure artifact of dividing by ~zero). Below `floor` annualized vol, or above a
+    sane `cap`, the ratio is not meaningful -> NaN."""
+    if ann_denom is None or not np.isfinite(ann_denom) or ann_denom < floor:
+        return np.nan
+    v = ann_mean / ann_denom
+    return float(v) if np.isfinite(v) and abs(v) <= cap else np.nan
+
+
 def _streaks(wins: np.ndarray):
     max_w = max_l = cur_w = cur_l = 0
     for w in wins:
@@ -60,8 +71,8 @@ def perf_metrics(daily_ret: pd.Series, position: pd.Series | None = None,
     ann_ret = r.mean() * ppy
     ann_vol = r.std() * np.sqrt(ppy)
     downside = r[r < 0].std() * np.sqrt(ppy)
-    sharpe = ann_ret / ann_vol if ann_vol > 0 else np.nan
-    sortino = ann_ret / downside if downside > 0 else np.nan
+    sharpe = _safe_ratio(ann_ret, ann_vol)
+    sortino = _safe_ratio(ann_ret, downside)
 
     m = {
         "total_return": float(eq.iloc[-1] - 1.0),

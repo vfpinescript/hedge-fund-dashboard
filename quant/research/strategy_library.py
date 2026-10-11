@@ -92,8 +92,19 @@ INSTRUMENT_GROUPS = {
     "Rates/Bonds": ["US10Y", "US02Y", "US30Y", "ZN1!", "ZB1!"],
 }
 
+# Honest DSR trial count: the search space a user actually browses is every
+# strategy on every asset, not just the handful of strategies. Deflating by only
+# len(STRATEGIES) under-counts the trials and makes the gate too lenient about
+# cherry-picking an asset. Use strategies x assets.
+N_SCAN_ASSETS = sum(len(v) for v in INSTRUMENT_GROUPS.values())
 
-def _strategy_returns(spec, instrument, cost_bps=1.0, bars=3000, vol_win=63):
+# Blended per-side transaction cost (spread + slippage + commission), in bps of
+# turnover. 1bp was unrealistically optimistic; 5bp is a conservative blended
+# estimate across liquid ETFs/FX (tighter) and crypto (wider).
+DEFAULT_COST_BPS = 5.0
+
+
+def _strategy_returns(spec, instrument, cost_bps=DEFAULT_COST_BPS, bars=3000, vol_win=63):
     """One strategy on one instrument: vol-scaled, rebalanced at `hold`."""
     df = load_ohlcv(instrument, bars=bars)
     ret = df["close"].pct_change()
@@ -136,7 +147,7 @@ def _strategy_returns(spec, instrument, cost_bps=1.0, bars=3000, vol_win=63):
     return strat.dropna(), ret
 
 
-def run_strategy(strategy_id, instrument, cost_bps=1.0) -> dict:
+def run_strategy(strategy_id, instrument, cost_bps=DEFAULT_COST_BPS) -> dict:
     spec = STRATEGIES.get(strategy_id)
     if not spec:
         return {"error": f"unknown strategy {strategy_id}"}
@@ -148,7 +159,7 @@ def run_strategy(strategy_id, instrument, cost_bps=1.0) -> dict:
         return {"error": f"insufficient history for {instrument}"}
 
     m = perf_metrics(strat)
-    dsr = deflated_sharpe_ratio(strat.values, n_trials=len(STRATEGIES))
+    dsr = deflated_sharpe_ratio(strat.values, n_trials=len(STRATEGIES) * N_SCAN_ASSETS)
     eq = (1 + strat).cumprod()
     bh = (1 + ret.reindex(strat.index).fillna(0)).cumprod()
     dd = (eq / eq.cummax() - 1) * 100

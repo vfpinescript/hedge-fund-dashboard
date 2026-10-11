@@ -30,7 +30,7 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>showTab(t.dataset.tab
 
 /* ---------- strategies ---------- */
 const METRICS = [
-  ["total_return","Total Return","pct","blue"],["max_drawdown","Max Drawdown","pct","red"],
+  ["cagr","CAGR (annualized)","pct","blue"],["max_drawdown","Max Drawdown","pct","red"],
   ["sharpe","Sharpe Ratio","num",""],["win_rate","Win Rate","pct",""],
   ["profit_factor","Profit Factor","num",""],["sortino","Sortino Ratio","num",""],
   ["avg_win","Avg Win","pct","blue"],["avg_loss","Avg Loss","pct","red"],
@@ -93,17 +93,21 @@ async function renderRun(strat, asset){
     let c=color; if(!c && fmt==="pct") c=(v>=0?"":"red");
     return `<div class="metric"><div class="ml">${label}</div><div class="mv ${c}">${disp}</div></div>`;
   }).join("");
-  const tr=m.total_return, trCls=tr>=0?"blue":"red";
+  const cagr=m.cagr, cagrCls=cagr>=0?"blue":"red";
+  const yrs=(d.equity.dates.length/252);
   box.innerHTML=`
     <div class="detail-head">
-      <div><h1>${d.strategy}</h1><div class="desc">${asset} · net of costs · ${d.equity.dates.length} days</div></div>
+      <div><h1>${d.strategy}</h1>
+        <div class="desc">${asset} · net of costs · ${d.equity.dates.length} days</div>
+        <span class="badge-insample">IN-SAMPLE · IDEALIZED BACKTEST</span></div>
       ${dsrChip(d.dsr,d.dsr_verdict)}
     </div>
     <div class="mgrid" style="margin-bottom:22px">${metricHTML}</div>
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3>Total Profit &amp; Loss</h3>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3>CAGR · compound annual growth</h3>
         <span class="muted" style="font-size:12px">Strategy vs Buy &amp; Hold</span></div>
-      <div class="pnl-big" style="color:var(--${trCls})">${fmtPct(tr)}</div>
+      <div class="pnl-big" style="color:var(--${cagrCls})">${fmtPct(cagr)}<span style="font-size:13px;color:var(--mut)"> / yr</span></div>
+      <div class="muted" style="font-size:12px;margin:-6px 0 4px">Cumulative compounded over ~${yrs.toFixed(1)}y: ${fmtPct(m.total_return)} — a headline total-return figure compounds to look huge and is not achievable as a single realized number; CAGR is the honest annual rate.</div>
       <div class="chart" id="eqChart" style="height:320px"></div></div>
     <div class="card-row">
       <div class="card"><h3>Drawdown</h3><div class="sub">Underwater equity</div>
@@ -180,7 +184,7 @@ let MATRIX=null;
 function matrixColor(v, metric){
   if(v==null) return "transparent";
   // map to a red->grey->green scale; scale midpoint/ranges per metric
-  const ranges={total_return:[-60,60], sharpe:[-1,1], sortino:[-1.5,1.5], dsr:[0,1]};
+  const ranges={cagr:[-25,25], total_return:[-60,60], sharpe:[-1,1], sortino:[-1.5,1.5], dsr:[0,1]};
   const [lo,hi]=ranges[metric]||[-1,1];
   let x=metric==="dsr"?(v-lo)/(hi-lo):(v-lo)/(hi-lo);
   x=Math.max(0,Math.min(1,x));
@@ -195,7 +199,7 @@ function matrixVal(cell, metric){
 function matrixDisp(cell, metric){
   const v=matrixVal(cell,metric);
   if(v==null) return "–";
-  if(metric==="total_return") return v.toFixed(0)+"%";
+  if(metric==="total_return"||metric==="cagr") return v.toFixed(0)+"%";
   if(metric==="dsr") return (v*100).toFixed(0)+"%";
   return v.toFixed(2);
 }

@@ -36,6 +36,26 @@ from quant.agents.vol_regime import VolRegimeAgent
 _CACHE: dict = {}
 
 
+def _safe_sharpe(r, ann=np.sqrt(252), floor=1e-7, cap=50.0):
+    """Sharpe with degenerate-series protection: a near-constant return series
+    has ~0 variance, which otherwise yields an absurd ratio (e.g. 9e16, a pure
+    divide-by-near-zero artifact). Returns None when not meaningful."""
+    sd = float(r.std())
+    if not np.isfinite(sd) or sd < floor:
+        return None
+    v = float(r.mean() / sd * ann)
+    return round(v, 2) if np.isfinite(v) and abs(v) <= cap else None
+
+
+def _safe_sortino(r, ann=np.sqrt(252), floor=1e-7, cap=50.0):
+    dn = r[r < 0]
+    sd = float(dn.std()) if len(dn) else 0.0
+    if not np.isfinite(sd) or sd < floor:
+        return None
+    v = float(r.mean() / sd * ann)
+    return round(v, 2) if np.isfinite(v) and abs(v) <= cap else None
+
+
 # ---------- series helpers ----------
 def _equity(daily: pd.Series):
     eq = (1 + daily).cumprod()
@@ -535,18 +555,17 @@ def forward_test(start=FORWARD_START):
                     continue
                 eq = (1 + fwd).cumprod()
                 tot = (eq.iloc[-1] - 1) * 100
-                sh = float(fwd.mean() / fwd.std() * np.sqrt(252)) if fwd.std() > 0 else 0.0
-                dn = fwd.copy(); dn[dn > 0] = 0.0
-                so = float(fwd.mean() / (dn.std() * np.sqrt(2)) * np.sqrt(252)) if dn.std() > 0 else 0.0
+                sh = _safe_sharpe(fwd)
+                so = _safe_sortino(fwd)
                 mdd = float((eq / eq.cummax() - 1).min()) * 100
                 rows.append({"strategy": spec["name"], "strategy_id": sid, "asset": asset,
                              "days": len(fwd), "return": round(tot, 1),
-                             "sharpe": round(sh, 2), "sortino": round(so, 2),
+                             "sharpe": sh, "sortino": so,
                              "max_dd": round(mdd, 1),
                              "rr": round(tot / abs(mdd), 2) if mdd else None})
             except Exception:
                 continue
-    rows.sort(key=lambda x: -x["sharpe"])
+    rows.sort(key=lambda x: -(x["sharpe"] if x["sharpe"] is not None else -1e9))
     out = {"start": start, "n": len(rows),
            "as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d"), "rows": rows}
     _CACHE["forward"] = out
@@ -572,10 +591,7 @@ def forward_series(strategy_id, instrument, start=FORWARD_START):
     bh = bench.reindex(fwd.index).fillna(0.0)
     eq = (1 + fwd).cumprod()
     bheq = (1 + bh).cumprod()
-    dn = fwd.copy(); dn[dn > 0] = 0.0
     tot = float((eq.iloc[-1] - 1) * 100)
-    sh = float(fwd.mean() / fwd.std() * np.sqrt(252)) if fwd.std() > 0 else 0.0
-    so = float(fwd.mean() / (dn.std() * np.sqrt(2)) * np.sqrt(252)) if dn.std() > 0 else 0.0
     mdd = float((eq / eq.cummax() - 1).min()) * 100
     return {
         "strategy": spec["name"], "strategy_id": strategy_id, "asset": inst,
@@ -583,8 +599,8 @@ def forward_series(strategy_id, instrument, start=FORWARD_START):
         "dates": [d.strftime("%Y-%m-%d") for d in fwd.index],
         "equity_pct": [round(float(v - 1) * 100, 2) for v in eq],
         "benchmark_pct": [round(float(v - 1) * 100, 2) for v in bheq],
-        "return": round(tot, 1), "sharpe": round(sh, 2),
-        "sortino": round(so, 2), "max_dd": round(mdd, 1),
+        "return": round(tot, 1), "sharpe": _safe_sharpe(fwd),
+        "sortino": _safe_sortino(fwd), "max_dd": round(mdd, 1),
     }
 
 
@@ -607,6 +623,7 @@ def strategy_matrix():
                 else:
                     m = r["metrics"]
                     cells[s["id"]] = {
+                        "cagr": round(m.get("cagr", 0) * 100, 1),
                         "total_return": round(m.get("total_return", 0) * 100, 1),
                         "sharpe": round(m.get("sharpe", 0), 2),
                         "sortino": round(m.get("sortino", 0), 2),
