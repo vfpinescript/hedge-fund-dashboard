@@ -58,7 +58,7 @@ def to_yahoo(instrument: str) -> str:
 
 
 def load_ohlcv(instrument: str, timeframe: str = "1d", bars: int = 2000,
-               use_cache: bool = True) -> pd.DataFrame:
+               use_cache: bool = True, clean: bool = True) -> pd.DataFrame:
     """Daily OHLCV from Yahoo Finance (free). Columns: open/high/low/close/volume.
 
     Cached to data_cache/ as parquet with a 6h TTL. `timeframe` currently
@@ -94,6 +94,20 @@ def load_ohlcv(instrument: str, timeframe: str = "1d", bars: int = 2000,
 
     if len(df) > bars:
         df = df.iloc[-bars:]
+
+    # robust bad-tick cleaning: winsorize close-price returns beyond 8 conditional
+    # sigmas (GARCH/EWMA). At kappa=8 this only touches near-certain data errors,
+    # not real moves, so backtests stay honest but a single corrupt Yahoo print
+    # can't blow up a series. Best-effort — never fail the load over it.
+    if clean and len(df) >= 60:
+        try:
+            from quant.risk.anomaly import clean_series
+            cleaned, n_bad = clean_series(df["close"], kappa=8.0, method="ewma")
+            if n_bad:
+                df = df.copy()
+                df["close"] = cleaned.values
+        except Exception:
+            pass
     return df
 
 

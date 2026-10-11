@@ -165,6 +165,14 @@ def api_desks():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/anomaly")
+def api_anomaly():
+    try:
+        return jsonify(compute.anomaly_scan())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/kalshi")
 def api_kalshi():
     try:

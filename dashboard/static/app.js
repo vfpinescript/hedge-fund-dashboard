@@ -16,11 +16,12 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","forward","analytics","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","analytics","anomaly","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
   if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
   if(name==="analytics" && !window._anLoaded){ loadAnalytics(); window._anLoaded=1; }
+  if(name==="anomaly" && !window._anomLoaded){ loadAnomaly(); window._anomLoaded=1; }
   if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
   if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
@@ -379,6 +380,54 @@ function plotSurface(id,Sf,scale){
        yaxis:{title:Sf.ylabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        zaxis:{title:Sf.zlabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
+}
+
+/* ---------- data quality / anomaly ---------- */
+async function loadAnomaly(){
+  const body=document.getElementById("anomalyBody");
+  let d;
+  try{ d=await (await fetch("/api/anomaly")).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  const m=d.market||{};
+  const col=v=>v>=0?"var(--pos)":"var(--neg)";
+  const scorePct=m.ok?Math.round((m.score||0)*100):null;
+  const stateCol=m.is_anomalous?"var(--neg)":(scorePct>=90?"var(--warn)":"var(--pos)");
+  const stateTxt=m.ok?(m.is_anomalous?"ANOMALOUS":"NORMAL"):"—";
+  // header banner
+  let h=`<div class="card" style="padding:16px 18px;margin-bottom:16px">
+    <div style="display:flex;gap:30px;align-items:center;flex-wrap:wrap">
+      <div><div class="ml">Market regime (today)</div>
+        <div class="dir-chip" style="background:${stateCol}22;color:${stateCol};display:inline-block;font-size:15px;margin-top:4px">${stateTxt}</div></div>
+      <div><div class="ml">Cross-sectional anomaly score</div><div class="mv" style="font-size:20px;color:${stateCol}">${scorePct!=null?scorePct+"%":"—"}</div></div>
+      <div><div class="ml">Robust Mahalanobis (today)</div><div class="mv" style="font-size:20px">${m.latest_dist??"—"}<span class="muted" style="font-size:12px"> / thr ${m.threshold??"—"}</span></div></div>
+      <div><div class="ml">Bad ticks cleaned</div><div class="mv" style="font-size:20px">${d.total_bad_ticks}</div></div>
+      <div><div class="ml">LOF outlier days</div><div class="mv" style="font-size:20px">${d.lof_outlier_days??"—"}</div></div>
+      <div class="muted" style="font-size:12px;max-width:360px">Score is the chi-square CDF of today's robust squared distance across ${m.p||"the"} assets, how extreme the joint move is versus the last year. High = de-risk, a complement to the jump-model regime, not a trade signal.</div>
+    </div></div>`;
+  // anomaly distance time series
+  h+=`<div class="card"><h3>Market Anomaly Distance</h3><div class="sub">Robust (MCD) Mahalanobis distance of each day's joint return vector · dashed line is the 97.5% χ² outlier threshold</div>
+      <div id="anomSeries" style="height:300px"></div></div>`;
+  // per-asset table
+  const rows=(d.assets||[]).map(a=>`<tr>
+      <td>${a.symbol}</td>
+      <td class="num">${a.cond_vol_annual!=null?a.cond_vol_annual+"%":"–"}</td>
+      <td class="num" style="color:${a.sigma_outliers>0?'var(--warn)':'var(--mut)'}">${a.sigma_outliers}</td>
+      <td class="num" style="color:${a.bad_ticks_cleaned>0?'var(--neg)':'var(--mut)'}">${a.bad_ticks_cleaned}</td>
+      <td class="muted" style="font-size:11px">${(a.recent_flags||[]).join(", ")||"—"}</td></tr>`).join("");
+  h+=`<div class="card" style="margin-top:16px"><h3>Per-Asset Scan</h3><div class="sub">GARCH(1,1) conditional vol · returns beyond ${d.kappa}σ flagged · bad ticks winsorized at ${d.clean_kappa}σ on load</div>
+      <div style="overflow-x:auto"><table class="labtable"><thead><tr><th>Symbol</th><th>Cond. Vol (ann)</th><th>${d.kappa}σ Outliers</th><th>Bad Ticks Cleaned</th><th>Recent Flagged Dates</th></tr></thead>
+      <tbody>${rows||`<tr><td colspan=5 class="muted">No data.</td></tr>`}</tbody></table></div></div>`;
+  body.innerHTML=h;
+  if(m.ok && m.series && m.series.length){
+    const xs=m.series.map(p=>p.date), ys=m.series.map(p=>p.dist);
+    Plotly.newPlot("anomSeries",[
+      {x:xs,y:ys,type:"scatter",mode:"lines",line:{color:"#6d97cf",width:1.6},
+        fill:"tozeroy",fillcolor:"rgba(109,151,207,.08)",name:"MCD distance"},
+      {x:xs,y:xs.map(()=>m.threshold),type:"scatter",mode:"lines",
+        line:{color:"#cf9f45",width:1.2,dash:"dash"},name:"χ² threshold"},
+    ],baseLayout({showlegend:true,legend:{orientation:"h",y:1.1,x:0,font:{size:11}}}),PLOT_CFG);
+  } else { const el=document.getElementById("anomSeries"); if(el) el.innerHTML=`<div class="loading">${m.reason||"insufficient data"}</div>`; }
 }
 
 /* ---------- live paper ---------- */

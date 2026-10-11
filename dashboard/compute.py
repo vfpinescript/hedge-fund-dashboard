@@ -324,6 +324,59 @@ def live_paper():
     return snap
 
 
+def anomaly_scan():
+    """Data-quality & anomaly scan over the core book assets using the three
+    robust outlier detectors (GARCH vol-filter, MCD Mahalanobis, LOF). Report:
+      - market anomaly score (cross-sectional robust Mahalanobis of today's move)
+      - per-asset conditional-sigma outliers and bad ticks cleaned on load
+    Cached per process."""
+    if "anomaly" in _CACHE:
+        return _CACHE["anomaly"]
+    from quant.data.loader import load_ohlcv
+    from quant.risk.anomaly import (conditional_vol, garch_outliers,
+                                    clean_series, market_anomaly, lof_scores)
+    core = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD",
+            "XAUUSD", "USOIL", "SPX", "NDX", "BTCUSD", "ETHUSD"]
+    rets = {}
+    assets = []
+    for sym in core:
+        try:
+            raw = load_ohlcv(sym, bars=400, clean=False)          # pre-clean prices
+            close = raw["close"]
+            cleaned, n_bad = clean_series(close, kappa=8.0, method="ewma")
+            r = cleaned.pct_change().dropna()
+            if len(r) < 120:
+                continue
+            mask, sig = garch_outliers(r, kappa=4.0)
+            last_sigma = float(sig.dropna().iloc[-1]) if sig.notna().any() else None
+            recent = [str(pd.Timestamp(t).date()) for t in r.index[mask.values]][-5:]
+            assets.append({
+                "symbol": sym, "bars": len(r),
+                "bad_ticks_cleaned": int(n_bad),
+                "sigma_outliers": int(mask.sum()),
+                "cond_vol_annual": round(last_sigma * np.sqrt(252) * 100, 1) if last_sigma else None,
+                "recent_flags": recent,
+            })
+            rets[sym] = r
+        except Exception:
+            continue
+    panel = pd.DataFrame(rets).dropna()
+    mkt = market_anomaly(panel) if not panel.empty else {"ok": False, "reason": "no data"}
+    lof_days = None
+    if not panel.empty and len(panel) > 40:
+        try:
+            _, lof_mask = lof_scores(panel.values, k=20)
+            lof_days = int(lof_mask.sum())
+        except Exception:
+            lof_days = None
+    out = {"as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d"),
+           "kappa": 4.0, "clean_kappa": 8.0,
+           "assets": assets, "market": mkt, "lof_outlier_days": lof_days,
+           "total_bad_ticks": sum(a["bad_ticks_cleaned"] for a in assets)}
+    _CACHE["anomaly"] = out
+    return out
+
+
 def desk_accounts():
     """The two additional Alpaca paper desks, each a separate account running one
     strategy: Trend (MA timing on SPY/QQQ/BTC/ETH) and Reversal (7d L/S on equity
