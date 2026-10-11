@@ -183,14 +183,20 @@ function agentCard(name,role,verdict,conv,why){
 let MATRIX=null;
 function matrixColor(v, metric){
   if(v==null) return "transparent";
-  // map to a red->grey->green scale; scale midpoint/ranges per metric
-  const ranges={cagr:[-25,25], total_return:[-60,60], sharpe:[-1,1], sortino:[-1.5,1.5], dsr:[0,1]};
+  // DSR: colour by its ACTUAL verdict bands, not a 0.5-centred scale. The
+  // meaningful cutoffs are 0.95 (robust) and 0.60 (inconclusive); below 0.60 is
+  // "likely overfit". A 44% is tentative, not disastrous, so it must not look as
+  // red as a true 0%.
+  if(metric==="dsr"){
+    if(v>=0.95) return `rgba(79,174,130,${0.4+0.4*Math.min(1,(v-0.95)/0.05)})`;   // green = robust
+    if(v>=0.60) return `rgba(214,170,69,${0.16+0.5*((v-0.60)/0.35)})`;            // amber = inconclusive
+    return `rgba(215,107,99,${0.08+0.42*((0.60-v)/0.60)})`;                       // red = overfit (deeper toward 0)
+  }
+  const ranges={cagr:[-25,25], total_return:[-60,60], sharpe:[-1,1], sortino:[-1.5,1.5]};
   const [lo,hi]=ranges[metric]||[-1,1];
-  let x=metric==="dsr"?(v-lo)/(hi-lo):(v-lo)/(hi-lo);
-  x=Math.max(0,Math.min(1,x));
+  let x=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
   const a=Math.abs(x-0.5)*2*0.55+0.06;
-  if(x>=0.5) return `rgba(79,174,130,${a})`;      // green
-  return `rgba(215,107,99,${a})`;                 // red
+  return x>=0.5 ? `rgba(79,174,130,${a})` : `rgba(215,107,99,${a})`;
 }
 function matrixVal(cell, metric){
   if(!cell) return null;
@@ -228,8 +234,10 @@ function renderMatrix(){
     }
     h+=`</tr>`;
   }
-  h+=`</tbody></table></div>
-    <div class="mtx-legend">Lower<span class="mtx-swatch"></span>Higher · click any cell to open it on the Strategies page. Colour = ${metric.replace("_"," ")}.</div>`;
+  const legend = metric==="dsr"
+    ? `<span style="color:#d66b63">red = likely overfit (&lt;60%)</span> · <span style="color:#d6aa45">amber = inconclusive (60–95%)</span> · <span style="color:#4fae82">green = robust (&gt;95%)</span>. Most cells are red, and that is the honest result: most simple strategies are noise. The few green cells are the real edges. Click any cell to open it.`
+    : `Lower<span class="mtx-swatch"></span>Higher · click any cell to open it on the Strategies page. Colour = ${metric.replace("_"," ")}.`;
+  h+=`</tbody></table></div><div class="mtx-legend">${legend}</div>`;
   const body=document.getElementById("matrixBody");
   body.innerHTML=h;
   body.querySelectorAll("td.cell[data-strat]").forEach(td=>td.onclick=()=>openStrategy(td.dataset.strat, td.dataset.asset));
