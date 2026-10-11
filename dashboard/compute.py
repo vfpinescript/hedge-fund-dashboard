@@ -334,6 +334,8 @@ def live_paper():
             "target_vol": cc["target_vol"], "vol_scale": cc["vol_scale"],
             "invested": cc["invested"], "lev_regime": cc["lev_regime"],
             "crypto_regime": cc["crypto_regime"],
+            "trend_regime": cc.get("trend_regime"), "reversal_cap": cc.get("reversal_cap"),
+            "trend_basket": cc.get("trend_basket"),
             "crypto_risk_cap": cc.get("crypto_risk_cap"),
             "crypto_risk_before": cc.get("crypto_risk_before"),
             "crypto_risk_after": cc.get("crypto_risk_after"),

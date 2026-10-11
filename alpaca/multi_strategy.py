@@ -42,7 +42,40 @@ MA_WINDOW = 200
 MIN_TRADE_DOLLARS = 50.0
 DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
 CRYPTO_ORDER = {"BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD"}
-FALLBACK_W = {"fx": 0.50, "leverage": 0.25, "crypto": 0.25}   # if ERC can't solve
+# Lean the book toward what survives the DSR gate. Trend-following is the robust
+# style (the few robust cells were trend on strong-trend names); the FX reversal
+# sleeve reads "likely overfit". So: add a diversified equity-trend sleeve, and
+# tilt capital away from reversal. The trend basket is diversified (broad indices
+# + one strong-trend name) and inverse-vol weighted so no single stock dominates;
+# the 20% position cap still bounds any name.
+TREND_BASKET = [s.strip() for s in os.environ.get("TREND_BASKET", "SPY,QQQ,NVDA").split(",") if s.strip()]
+REVERSAL_MAX = float(os.environ.get("REVERSAL_MAX", "0.25"))   # cap the non-robust reversal sleeve; excess -> trend sleeves
+FALLBACK_W = {"fx": 0.25, "leverage": 0.20, "crypto": 0.20, "trend": 0.35}   # if ERC can't solve
+
+
+def _trend_basket_series(a, days=700) -> pd.Series:
+    """Inverse-vol-weighted MA-timing return across TREND_BASKET: hold a name's
+    return when it closed above its 200d MA (decided on the prior day), else cash.
+    This is the diversified trend sleeve the book leans toward."""
+    rets, ivs = {}, {}
+    for sym in TREND_BASKET:
+        try:
+            b = a.daily_bars(sym, days=days)
+            if not b:
+                continue
+            s = pd.Series([x["c"] for x in b], index=pd.to_datetime([x["t"][:10] for x in b]))
+            r = s.pct_change()
+            ab = (s > s.rolling(MA_WINDOW).mean()).shift(1).fillna(False)
+            rets[sym] = pd.Series(np.where(ab, r, 0.0), index=s.index)
+            ivs[sym] = 1.0 / (r.rolling(VOL_WINDOW).std() + 1e-9)
+        except Exception:
+            continue
+    if not rets:
+        return pd.Series(dtype=float, name="trend")
+    R = pd.DataFrame(rets)
+    W = pd.DataFrame(ivs).reindex(R.index)
+    W = W.div(W.sum(axis=1), axis=0).shift(1)
+    return (W * R).sum(axis=1).rename("trend")
 
 
 # ---------- sleeve return series (for the covariance / ERC weighting) ----------
@@ -73,7 +106,9 @@ def _sleeve_return_series(a, lookback=504) -> pd.DataFrame:
         legs.append(pd.Series(np.where(ab, r, 0.0), index=s.index))
     cry = (sum(legs) / len(legs)).rename("crypto") if legs else pd.Series(dtype=float, name="crypto")
 
-    df = pd.concat([fx, lev, cry], axis=1).dropna()
+    trd = _trend_basket_series(a)
+
+    df = pd.concat([fx, lev, cry, trd], axis=1).dropna()
     return df.iloc[-lookback:]
 
 
@@ -144,6 +179,34 @@ def _leverage_sleeve(a, gross, prices):
     price = a.latest_trade(sym) or a.daily_bars(sym, days=3)[-1]["c"]
     prices[sym] = float(price)
     return {sym: gross / float(price)}, ("risk-on -> SSO" if above else "risk-off -> BIL")
+
+
+def _trend_sleeve(a, gross, prices):
+    """Live diversified trend sleeve: hold each TREND_BASKET name above its 200d
+    MA, inverse-vol weighted (so a high-vol single name can't dominate), else
+    that slice sits in cash."""
+    held, vols = {}, {}
+    for sym in TREND_BASKET:
+        try:
+            b = a.daily_bars(sym, days=260)
+            if not b:
+                continue
+            c = np.array([x["c"] for x in b], dtype=float)
+            if len(c) < MA_WINDOW + 1:
+                continue
+            prices[sym] = float(c[-1])
+            if c[-1] > c[-MA_WINDOW:].mean():
+                rr = np.diff(c[-VOL_WINDOW - 1:]) / c[-VOL_WINDOW - 1:-1]
+                vols[sym] = float(np.std(rr)) or 1e-9
+                held[sym] = float(c[-1])
+        except Exception:
+            continue
+    if not held:
+        return {}, "all below MA -> cash"
+    inv = {s: 1.0 / vols[s] for s in held}
+    tot = sum(inv.values()) or 1.0
+    tgt = {s: (inv[s] / tot * gross) / held[s] for s in held}
+    return tgt, "hold " + "+".join(held.keys())
 
 
 def _crypto_sleeve(a, gross, prices):
@@ -241,6 +304,21 @@ def compute_combined(a=None):
     a = a or Alpaca()
     equity = float(a.account().get("equity", 0))
     weights, corr, book_vol = sleeve_weights(a)
+    # robustness tilt: ERC over-weights the FX reversal sleeve for being low-vol,
+    # but it reads "likely overfit". Cap it at REVERSAL_MAX and redistribute the
+    # excess to the DSR-robust trend sleeves (equity trend, crypto trend,
+    # leverage rotation), so the book leans toward what survives. Reversal is kept
+    # (not dropped) for its genuine diversification, just no longer dominant.
+    for k in ("fx", "leverage", "crypto", "trend"):
+        weights.setdefault(k, 0.0)
+    if weights["fx"] > REVERSAL_MAX:
+        excess = weights["fx"] - REVERSAL_MAX
+        weights["fx"] = REVERSAL_MAX
+        others = {k: weights[k] for k in ("leverage", "crypto", "trend")}
+        osum = sum(others.values()) or 1.0
+        for k in others:
+            weights[k] += excess * others[k] / osum
+    weights = {k: round(v, 4) for k, v in weights.items()}
     reg = _regime(a)
     # book-level vol targeting as a CAP: de-lever when book vol exceeds the
     # target, never lever up (risk-reduction mandate, not a vol booster).
@@ -259,8 +337,9 @@ def compute_combined(a=None):
     fx = _fx_targets(a, budget * weights["fx"], prices)
     lev, lev_regime = _leverage_sleeve(a, budget * weights["leverage"], prices)
     cry, cry_regime = _crypto_sleeve(a, budget * weights["crypto"], prices)
+    trd, trend_regime = _trend_sleeve(a, budget * weights["trend"], prices)
     targets = {}
-    for d in (fx, lev, cry):
+    for d in (fx, lev, cry, trd):
         for k, v in d.items():
             targets[k] = targets.get(k, 0.0) + v
 
@@ -311,7 +390,9 @@ def compute_combined(a=None):
             "anomaly_flag": bool(anom.get("is_anomalous")) if anom.get("ok") else None,
             "invested": round(INVESTED * reg["exposure_scale"] * vol_scale * anomaly_scale, 3),
             "targets": targets, "prices": prices,
-            "regime": reg, "lev_regime": lev_regime, "crypto_regime": cry_regime}
+            "regime": reg, "lev_regime": lev_regime, "crypto_regime": cry_regime,
+            "trend_regime": trend_regime, "reversal_cap": REVERSAL_MAX,
+            "trend_basket": TREND_BASKET}
 
 
 def plan(a=None):
@@ -341,6 +422,8 @@ def plan(a=None):
             "anomaly_score": t["anomaly_score"], "anomaly_scale": t["anomaly_scale"],
             "anomaly_threshold": t["anomaly_threshold"], "anomaly_flag": t["anomaly_flag"],
             "lev_regime": t["lev_regime"], "crypto_regime": t["crypto_regime"],
+            "trend_regime": t["trend_regime"], "reversal_cap": t["reversal_cap"],
+            "trend_basket": t["trend_basket"],
             "n_orders": len(orders), "orders": orders}
 
 

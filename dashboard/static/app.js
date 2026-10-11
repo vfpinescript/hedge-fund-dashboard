@@ -501,10 +501,11 @@ async function loadLive(){
           </div></div></div>
       <div class="card"><h3>Sleeve Weights</h3><div class="sub">Equal risk contribution across uncorrelated sleeves</div>
         <div style="padding:14px 18px 18px">
-          ${bar("FX reversal",w.fx,"var(--blue)")}
-          ${bar("Leverage rotation · "+(bk.lev_regime||""),w.leverage,"var(--gold)")}
+          ${bar("Equity trend · "+(bk.trend_regime||""),w.trend,"var(--pos)")}
           ${bar("Crypto trend · "+(bk.crypto_regime||""),w.crypto,"var(--pos)")}
-          <div class="muted" style="font-size:11px;margin-top:8px">Vol target ${bk.target_vol!=null?(bk.target_vol*100).toFixed(0)+"%":"—"} · exposure cap ×${bk.vol_scale??"—"}</div>
+          ${bar("Leverage rotation · "+(bk.lev_regime||""),w.leverage,"var(--gold)")}
+          ${bar("FX reversal (overfit — capped)",w.fx,"var(--neg)")}
+          <div class="muted" style="font-size:11px;margin-top:8px">Leaned toward trend (DSR-robust); reversal capped at ${bk.reversal_cap!=null?Math.round(bk.reversal_cap*100)+"%":"—"} of the book, excess redeployed to the trend sleeves. Trend basket: ${(bk.trend_basket||[]).join(", ")||"—"}. Vol target ${bk.target_vol!=null?(bk.target_vol*100).toFixed(0)+"%":"—"} · exposure cap ×${bk.vol_scale??"—"}</div>
         </div></div>
     </div>`;
   })();
