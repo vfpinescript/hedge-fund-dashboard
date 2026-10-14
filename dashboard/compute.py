@@ -526,11 +526,26 @@ def analytics(strategy_id, instrument, horizon=252, n_paths=2000):
 
 
 # assets shown down the side of the Strategy Matrix
+# A curated, representative cross-section spanning every asset class for the
+# eager matrix / forward grid (every strategy is run on each, so this stays
+# bounded). The full, much larger universe lives in INSTRUMENT_GROUPS and is
+# browsable one at a time on the Strategies page.
 MATRIX_ASSETS = [
-    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD", "EURJPY",
-    "XAUUSD", "XAGUSD", "USOIL", "NATGAS",
-    "SPX", "NDX", "IWM", "DIA", "EEM", "TLT",
-    "AAPL", "MSFT", "NVDA", "TSLA",
+    # FX
+    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDMXN",
+    # Commodities
+    "XAUUSD", "XAGUSD", "USOIL", "NATGAS", "HG1!", "COFFEE",
+    # Stocks
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "JPM", "UNH", "LLY", "XOM",
+    # Bonds & fixed income
+    "TLT", "IEF", "LQD", "HYG", "TIP",
+    # Indices
+    "SPX", "NDX", "DJIA", "RUSSELL", "DAX", "NIKKEI",
+    # ETFs
+    "SPY", "QQQ", "XLK", "XLF", "XLE", "SMH", "GLD", "EEM",
+    # Derivatives
+    "TQQQ", "SOXL", "ES1!", "ZN1!",
+    # Crypto
     "BTCUSD", "ETHUSD", "SOLUSD",
 ]
 

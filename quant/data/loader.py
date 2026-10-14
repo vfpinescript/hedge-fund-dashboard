@@ -47,6 +47,27 @@ SYMBOL_MAP = {
     # Global equity indices
     "RTY1!": "RTY=F", "DAX": "^GDAXI", "NIKKEI": "^N225", "FTSE": "^FTSE",
     "ESTX50": "^STOXX50E", "HSI": "^HSI",
+    # --- extended universe v2 ---
+    # FX crosses / EM
+    "USDSEK": "USDSEK=X", "USDNOK": "USDNOK=X", "USDSGD": "USDSGD=X",
+    "USDMXN": "USDMXN=X", "USDZAR": "USDZAR=X", "USDTRY": "USDTRY=X",
+    "GBPAUD": "GBPAUD=X", "EURAUD": "EURAUD=X", "EURCAD": "EURCAD=X",
+    "AUDNZD": "AUDNZD=X", "NZDJPY": "NZDJPY=X", "CADJPY": "CADJPY=X",
+    "CHFJPY": "CHFJPY=X", "GBPCHF": "GBPCHF=X",
+    # Commodity futures (softs, grains, energy, livestock)
+    "COCOA": "CC=F", "COTTON": "CT=F", "OJUICE": "OJ=F", "CATTLE": "LE=F",
+    "LEANHOGS": "HE=F", "GASOLINE": "RB=F", "HEATOIL": "HO=F", "OATS": "ZO=F",
+    "SOYOIL": "ZL=F", "SOYMEAL": "ZM=F",
+    # Global equity indices (cash)
+    "DJIA": "^DJI", "RUSSELL": "^RUT", "CAC40": "^FCHI", "SMI": "^SSMI",
+    "IBEX": "^IBEX", "ASX200": "^AXJO", "KOSPI": "^KS11", "SENSEX": "^BSESN",
+    "NIFTY": "^NSEI", "TSX": "^GSPTSE", "BOVESPA": "^BVSP", "VIX": "^VIX",
+    # Derivatives: index / FX / rate futures
+    "YM1!": "YM=F", "6E1!": "6E=F", "6J1!": "6J=F", "ZF1!": "ZF=F", "ZT1!": "ZT=F",
+    # More crypto
+    "XRPUSD": "XRP-USD", "ADAUSD": "ADA-USD", "DOGEUSD": "DOGE-USD",
+    "AVAXUSD": "AVAX-USD", "BNBUSD": "BNB-USD", "DOTUSD": "DOT-USD",
+    "LINKUSD": "LINK-USD",
 }
 
 _CACHE_DIR = Path(__file__).resolve().parents[2] / "data_cache"
