@@ -1,0 +1,61 @@
+name: Rebalance paper accounts
+
+# Replaces the Railway cron (trial expired). Rebalances all three Alpaca paper
+# accounts on a schedule, in the cloud, for free.
+#
+# SAFETY: trades are placed only when DRY_RUN=0. It stays at "1" (preview only)
+# until you set a repository variable DRY_RUN=0 (Settings -> Secrets and
+# variables -> Actions -> Variables). A manual run lets you pick dry-run from the
+# button, so you can preview the planned orders in the logs before going live.
+
+on:
+  schedule:
+    - cron: "0 15 * * 1-5"   # 15:00 UTC on weekdays = US market hours
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run? 1 = preview only, 0 = place live paper orders"
+        default: "1"
+        required: true
+
+concurrency:
+  group: rebalance
+  cancel-in-progress: false
+
+jobs:
+  rebalance:
+    runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+      ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+      ALPACA2_KEY_ID: ${{ secrets.ALPACA2_KEY_ID }}
+      ALPACA2_SECRET: ${{ secrets.ALPACA2_SECRET }}
+      ALPACA3_KEY_ID: ${{ secrets.ALPACA3_KEY_ID }}
+      ALPACA3_SECRET: ${{ secrets.ALPACA3_SECRET }}
+      # workflow_dispatch -> use the button's choice; scheduled -> repo var DRY_RUN, default "1"
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || vars.DRY_RUN || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Show mode
+        run: echo "DRY_RUN=$DRY_RUN  (1 = preview only, 0 = live paper orders)"
+
+      - name: Rebalance main book (cross-asset trend + crypto + leverage + capped reversal)
+        continue-on-error: true
+        run: python -m alpaca.multi_strategy
+
+      - name: Rebalance desks (MA-timing + reversal L/S)
+        continue-on-error: true
+        run: python -m alpaca.desks
+
+      - name: Snapshot accounts
+        continue-on-error: true
+        run: python -m alpaca.snapshot
