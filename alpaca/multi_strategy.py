@@ -43,12 +43,20 @@ MIN_TRADE_DOLLARS = 50.0
 DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
 CRYPTO_ORDER = {"BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD"}
 # Lean the book toward what survives the DSR gate. Trend-following is the robust
-# style (the few robust cells were trend on strong-trend names); the FX reversal
-# sleeve reads "likely overfit". So: add a diversified equity-trend sleeve, and
-# tilt capital away from reversal. The trend basket is diversified (broad indices
-# + one strong-trend name) and inverse-vol weighted so no single stock dominates;
-# the 20% position cap still bounds any name.
-TREND_BASKET = [s.strip() for s in os.environ.get("TREND_BASKET", "SPY,QQQ,NVDA").split(",") if s.strip()]
+# style, and it diversifies best ACROSS asset classes (the CTA/managed-futures
+# way). The live account trades via Alpaca, which only handles US stocks/ETFs and
+# crypto -- no FX spot, futures or cash indices -- so every class is expressed
+# through a liquid, Alpaca-tradeable ETF (or stock). Inverse-vol weighted so the
+# low-vol legs (bonds) balance risk against the high-vol ones (semis, oil), and
+# the 20% position cap still bounds any single name. Each leg is held only while
+# it is above its 200d MA, else that slice sits in cash. Research-only universe
+# (FX spot, futures, foreign indices) stays out because Alpaca cannot trade it.
+#   equities: SPY QQQ IWM EFA EEM SMH NVDA   bonds: TLT IEF LQD HYG
+#   commodities: GLD SLV DBC USO   dollar: UUP
+TREND_BASKET = [s.strip() for s in os.environ.get(
+    "TREND_BASKET",
+    "SPY,QQQ,IWM,EFA,EEM,SMH,NVDA,TLT,IEF,LQD,HYG,GLD,SLV,DBC,USO,UUP"
+).split(",") if s.strip()]
 REVERSAL_MAX = float(os.environ.get("REVERSAL_MAX", "0.25"))   # cap the non-robust reversal sleeve; excess -> trend sleeves
 FALLBACK_W = {"fx": 0.25, "leverage": 0.20, "crypto": 0.20, "trend": 0.35}   # if ERC can't solve
 
