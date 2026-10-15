@@ -344,6 +344,7 @@ def live_paper():
             "anomaly_scale": cc.get("anomaly_scale"),
             "anomaly_threshold": cc.get("anomaly_threshold"),
             "anomaly_flag": cc.get("anomaly_flag"),
+            "nfci": cc.get("nfci"), "nfci_scale": cc.get("nfci_scale"),
         }
     except Exception as e:
         snap["book"] = {"error": str(e)[:100]}

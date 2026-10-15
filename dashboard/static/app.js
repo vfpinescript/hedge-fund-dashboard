@@ -416,23 +416,29 @@ async function loadMacro(){
       <div class="card"><h3>Rates &amp; Curve</h3><div class="sub">US Treasury yields · Fed funds</div>
         <div class="mgrid" style="grid-template-columns:repeat(3,1fr);padding:4px 2px">
           ${d.rates.map(stat).join("")}${stat(d.curve)}</div>
-        <div id="mcCurve" style="height:170px"></div></div>
+        <div class="muted" style="font-size:11px;padding:0 2px">Yield-curve slope: 10Y minus 2Y Treasury yield (%), weekly. Below 0 = inverted, a classic recession lead indicator.</div>
+        <div id="mcCurve" style="height:160px"></div></div>
       <div class="card"><h3>Inflation &amp; Labor</h3><div class="sub">Breakevens · CPI · unemployment</div>
         <div class="mgrid" style="grid-template-columns:repeat(3,1fr);padding:4px 2px">
           ${stat(r.breakeven)}${stat(r.cpi_yoy)}${stat(r.unemployment)}${stat(r.dollar)}</div>
-        <div id="mcUST" style="height:170px"></div></div>
+        <div class="muted" style="font-size:11px;padding:0 2px">10-year US Treasury yield (%), weekly. The benchmark long rate: up = tighter money / cheaper bonds.</div>
+        <div id="mcUST" style="height:160px"></div></div>
     </div>
     <div class="card-row">
       <div class="card"><h3>Risk &amp; Credit</h3><div class="sub">Credit spreads · vol · financial conditions</div>
         <div class="mgrid" style="grid-template-columns:repeat(3,1fr);padding:4px 2px">
           ${stat(r.hy_oas)}${stat(r.vix)}${stat(r.nfci)}</div>
-        <div id="mcHY" style="height:150px"></div>
-        <div id="mcVIX" style="height:150px"></div></div>
+        <div class="muted" style="font-size:11px;padding:0 2px">High-yield credit spread (OAS, %), weekly. Extra yield junk bonds pay over Treasuries; higher = more credit stress / risk-off.</div>
+        <div id="mcHY" style="height:140px"></div>
+        <div class="muted" style="font-size:11px;padding:6px 2px 0">VIX, weekly. Equity's implied volatility ("fear gauge"); spikes mark market stress.</div>
+        <div id="mcVIX" style="height:140px"></div></div>
       <div class="card"><h3>Energy (EIA)</h3><div class="sub">Crude &amp; natural gas, spot &amp; inventories</div>
         <div class="mgrid" style="grid-template-columns:repeat(2,1fr);padding:4px 2px">
           ${stat(e.wti)}${stat(e.brent)}${stat(e.natgas)}${stat(e.crude_stocks)}</div>
-        <div id="mcWTI" style="height:150px"></div>
-        <div id="mcNG" style="height:150px"></div></div>
+        <div class="muted" style="font-size:11px;padding:0 2px">WTI crude oil spot price ($/barrel), weekly.</div>
+        <div id="mcWTI" style="height:140px"></div>
+        <div class="muted" style="font-size:11px;padding:6px 2px 0">Henry Hub natural gas spot price ($/MMBtu), weekly.</div>
+        <div id="mcNG" style="height:140px"></div></div>
     </div>
     <div id="macroSignals"><div class="loading">Backtesting macro overlays on equity…</div></div>`;
   body.innerHTML=h;
@@ -585,6 +591,8 @@ async function loadLive(){
             <div class="metric"><div class="ml">Net invested</div><div class="mv">${bk.invested!=null?(bk.invested*100).toFixed(0)+"%":"—"}</div></div>
             <div class="metric"><div class="ml">Anomaly score</div><div class="mv" style="color:${bk.anomaly_flag?'var(--red)':(bk.anomaly_score!=null&&bk.anomaly_score>=(bk.anomaly_threshold||0.95)?'var(--amber)':'var(--green)')}">${bk.anomaly_score!=null?(bk.anomaly_score*100).toFixed(0)+"%":"—"}</div></div>
             <div class="metric"><div class="ml">Anomaly de-risk</div><div class="mv">${bk.anomaly_scale!=null?"×"+bk.anomaly_scale:"×1"}</div></div>
+            <div class="metric"><div class="ml">Fin. conditions (NFCI)</div><div class="mv" style="color:${bk.nfci!=null?(bk.nfci>0?'var(--amber)':'var(--green)'):'var(--mut)'}">${bk.nfci!=null?(bk.nfci>0?"+":"")+bk.nfci:"—"}</div></div>
+            <div class="metric"><div class="ml">NFCI de-risk</div><div class="mv">${bk.nfci_scale!=null?"×"+bk.nfci_scale:"×1"}</div></div>
           </div></div></div>
       <div class="card"><h3>Sleeve Weights</h3><div class="sub">Equal risk contribution across uncorrelated sleeves</div>
         <div style="padding:14px 18px 18px">

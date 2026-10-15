@@ -38,6 +38,12 @@ CRYPTO_RISK_CAP = float(os.environ.get("CRYPTO_RISK_CAP", "0.40"))
 ANOMALY_DERISK = os.environ.get("ANOMALY_DERISK", "1") != "0"
 ANOMALY_TRIGGER = float(os.environ.get("ANOMALY_TRIGGER", "0.95"))   # score above this starts de-levering
 ANOMALY_FLOOR = float(os.environ.get("ANOMALY_FLOOR", "0.50"))       # most we cut the book to
+# Financial-conditions de-risk (the DSR-robust NFCI overlay, promoted to live).
+# NFCI > 0 = tight conditions (risk-off): scale the book down toward NFCI_FLOOR,
+# reaching it at NFCI = 1 (very tight). NFCI <= 0 = loose: no change. De-lever
+# only, weekly data, graceful no-op if FRED is unavailable.
+NFCI_DERISK = os.environ.get("NFCI_DERISK", "1") != "0"
+NFCI_FLOOR = float(os.environ.get("NFCI_FLOOR", "0.50"))
 MA_WINDOW = 200
 MIN_TRADE_DOLLARS = 50.0
 DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
@@ -340,7 +346,18 @@ def compute_combined(a=None):
     if ANOMALY_DERISK and anom.get("ok") and anomaly_score > ANOMALY_TRIGGER:
         frac = (anomaly_score - ANOMALY_TRIGGER) / (1.0 - ANOMALY_TRIGGER)
         anomaly_scale = float(np.clip(1.0 - frac * (1.0 - ANOMALY_FLOOR), ANOMALY_FLOOR, 1.0))
-    budget = equity * INVESTED * reg["exposure_scale"] * vol_scale * anomaly_scale
+    # financial-conditions de-risk: tight NFCI (>0) scales the book down
+    nfci_val = None
+    nfci_scale = 1.0
+    if NFCI_DERISK:
+        try:
+            from quant.data.macro import fred_latest
+            _, nfci_val = fred_latest("NFCI")
+            if nfci_val is not None and nfci_val > 0:
+                nfci_scale = float(np.clip(1.0 - nfci_val * (1.0 - NFCI_FLOOR), NFCI_FLOOR, 1.0))
+        except Exception:
+            pass
+    budget = equity * INVESTED * reg["exposure_scale"] * vol_scale * anomaly_scale * nfci_scale
     prices = {}
     fx = _fx_targets(a, budget * weights["fx"], prices)
     lev, lev_regime = _leverage_sleeve(a, budget * weights["leverage"], prices)
@@ -396,7 +413,9 @@ def compute_combined(a=None):
             "anomaly_score": anomaly_score, "anomaly_scale": round(anomaly_scale, 3),
             "anomaly_threshold": ANOMALY_TRIGGER,
             "anomaly_flag": bool(anom.get("is_anomalous")) if anom.get("ok") else None,
-            "invested": round(INVESTED * reg["exposure_scale"] * vol_scale * anomaly_scale, 3),
+            "nfci": round(nfci_val, 2) if nfci_val is not None else None,
+            "nfci_scale": round(nfci_scale, 3),
+            "invested": round(INVESTED * reg["exposure_scale"] * vol_scale * anomaly_scale * nfci_scale, 3),
             "targets": targets, "prices": prices,
             "regime": reg, "lev_regime": lev_regime, "crypto_regime": cry_regime,
             "trend_regime": trend_regime, "reversal_cap": REVERSAL_MAX,
@@ -429,6 +448,7 @@ def plan(a=None):
             "crypto_risk_before": t["crypto_risk_before"], "crypto_risk_after": t["crypto_risk_after"],
             "anomaly_score": t["anomaly_score"], "anomaly_scale": t["anomaly_scale"],
             "anomaly_threshold": t["anomaly_threshold"], "anomaly_flag": t["anomaly_flag"],
+            "nfci": t["nfci"], "nfci_scale": t["nfci_scale"],
             "lev_regime": t["lev_regime"], "crypto_regime": t["crypto_regime"],
             "trend_regime": t["trend_regime"], "reversal_cap": t["reversal_cap"],
             "trend_basket": t["trend_basket"],

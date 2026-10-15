@@ -32,6 +32,10 @@ jobs:
       ALPACA2_SECRET: ${{ secrets.ALPACA2_SECRET }}
       ALPACA3_KEY_ID: ${{ secrets.ALPACA3_KEY_ID }}
       ALPACA3_SECRET: ${{ secrets.ALPACA3_SECRET }}
+      # macro data (NFCI financial-conditions de-risk). Optional: if unset the
+      # live book just skips the NFCI brake (graceful no-op).
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
       # workflow_dispatch -> use the button's choice; scheduled -> repo var DRY_RUN, default "1"
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || vars.DRY_RUN || '1' }}
     steps:
