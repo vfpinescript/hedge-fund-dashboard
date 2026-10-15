@@ -403,6 +403,95 @@ def anomaly_scan():
     return out
 
 
+def macro_monitor():
+    """Live macro (FRED) + energy (EIA) dashboard payload: headline indicators,
+    chart series, and a few derived regime flags. Cached per process (the macro
+    module also caches the raw series with a 6h TTL)."""
+    if "macro" in _CACHE:
+        return _CACHE["macro"]
+    from quant.data import macro as M
+
+    def fcard(sid, label, unit="%"):
+        d, v = M.fred_latest(sid)
+        return {"label": label, "value": v, "date": d, "unit": unit}
+
+    def ecard(sid, label, unit):
+        d, v = M.eia_latest(sid)
+        return {"label": label, "value": v, "date": d, "unit": unit}
+
+    def fseries(sid, start="2022-01-01"):
+        try:
+            s = M.fred_series(sid)
+            s = s[s.index >= start].resample("W").last().dropna()
+            return {"dates": [str(d.date()) for d in s.index],
+                    "values": [round(float(x), 3) for x in s.values]}
+        except Exception:
+            return {"dates": [], "values": []}
+
+    def eseries(sid, start="2022-01-01"):
+        try:
+            s = M.eia_series(sid)
+            s = s[s.index >= start].resample("W").last().dropna()
+            return {"dates": [str(d.date()) for d in s.index],
+                    "values": [round(float(x), 2) for x in s.values]}
+        except Exception:
+            return {"dates": [], "values": []}
+
+    rates = [fcard("DGS3MO", "3M T-Bill"), fcard("DGS2", "2Y"), fcard("DGS10", "10Y"),
+             fcard("DGS30", "30Y"), fcard("DFF", "Fed Funds")]
+    # CPI YoY from the index level
+    cpi_yoy = None
+    try:
+        cpi = M.fred_series("CPIAUCSL")
+        if len(cpi) > 13:
+            cpi_yoy = round(float(cpi.iloc[-1] / cpi.iloc[-13] - 1) * 100, 2)
+    except Exception:
+        pass
+
+    curve = fcard("T10Y2Y", "10Y-2Y Slope")
+    risk = {"hy_oas": fcard("BAMLH0A0HYM2", "HY Credit Spread (OAS)"),
+            "vix": fcard("VIXCLS", "VIX", unit="pts"),
+            "nfci": fcard("NFCI", "Financial Conditions (NFCI)", unit="idx"),
+            "dollar": fcard("DTWEXBGS", "Broad Dollar Index", unit="idx"),
+            "breakeven": fcard("T10YIE", "10Y Breakeven Inflation"),
+            "unemployment": fcard("UNRATE", "Unemployment"),
+            "cpi_yoy": {"label": "CPI (YoY)", "value": cpi_yoy, "date": None, "unit": "%"}}
+
+    energy = {"wti": ecard("PET.RWTC.D", "WTI Crude", "$/bbl"),
+              "brent": ecard("PET.RBRTE.D", "Brent Crude", "$/bbl"),
+              "natgas": ecard("NG.RNGWHHD.D", "Henry Hub Nat Gas", "$/MMBtu"),
+              "crude_stocks": ecard("PET.WCESTUS1.W", "US Crude Stocks", "Mbbl")}
+
+    charts = {"curve": fseries("T10Y2Y"), "hy_oas": fseries("BAMLH0A0HYM2"),
+              "vix": fseries("VIXCLS"), "ust10y": fseries("DGS10"),
+              "wti": eseries("PET.RWTC.D"), "natgas": eseries("NG.RNGWHHD.D")}
+
+    # derived regime flags (honest, rule-based read of the live data)
+    flags = []
+    cv = curve["value"]
+    if cv is not None:
+        flags.append({"k": "Yield curve", "v": ("inverted" if cv < 0 else "positive") + f" ({cv:+.2f}%)",
+                      "tone": "neg" if cv < 0 else "pos"})
+    hy = risk["hy_oas"]["value"]
+    if hy is not None:
+        flags.append({"k": "Credit stress", "v": ("elevated" if hy > 5 else "moderate" if hy > 4 else "calm") + f" ({hy:.2f}%)",
+                      "tone": "neg" if hy > 5 else "warn" if hy > 4 else "pos"})
+    nf = risk["nfci"]["value"]
+    if nf is not None:
+        flags.append({"k": "Financial conditions", "v": ("tight" if nf > 0 else "loose") + f" ({nf:+.2f})",
+                      "tone": "neg" if nf > 0 else "pos"})
+    vx = risk["vix"]["value"]
+    if vx is not None:
+        flags.append({"k": "Equity vol", "v": ("elevated" if vx > 25 else "low") + f" ({vx:.1f})",
+                      "tone": "neg" if vx > 25 else "pos"})
+
+    out = {"as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+           "rates": rates, "curve": curve, "risk": risk, "energy": energy,
+           "charts": charts, "flags": flags}
+    _CACHE["macro"] = out
+    return out
+
+
 def desk_accounts():
     """The two additional Alpaca paper desks, each a separate account running one
     strategy: Trend (MA timing on SPY/QQQ/BTC/ETH) and Reversal (7d L/S on equity

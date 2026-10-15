@@ -173,6 +173,14 @@ def api_anomaly():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/macro")
+def api_macro():
+    try:
+        return jsonify(compute.macro_monitor())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/kalshi")
 def api_kalshi():
     try:

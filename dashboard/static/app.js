@@ -16,12 +16,13 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","forward","analytics","anomaly","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","analytics","anomaly","macro","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
   if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
   if(name==="analytics" && !window._anLoaded){ loadAnalytics(); window._anLoaded=1; }
   if(name==="anomaly" && !window._anomLoaded){ loadAnomaly(); window._anomLoaded=1; }
+  if(name==="macro" && !window._macroLoaded){ loadMacro(); window._macroLoaded=1; }
   if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
   if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
@@ -392,6 +393,62 @@ function plotSurface(id,Sf,scale){
        yaxis:{title:Sf.ylabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        zaxis:{title:Sf.zlabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
+}
+
+/* ---------- macro & energy monitor ---------- */
+async function loadMacro(){
+  const body=document.getElementById("macroBody");
+  let d;
+  try{ d=await (await fetch("/api/macro")).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(d.error){ body.innerHTML=`<div class="loading">Macro data unavailable: ${d.error}</div>`; return; }
+  const fmt=(c)=> c.value==null?"–":(c.value.toLocaleString(undefined,{maximumFractionDigits:2})+(c.unit==="%"?"%":""));
+  const tone=t=>t==="pos"?"var(--pos)":t==="neg"?"var(--neg)":t==="warn"?"var(--warn)":"var(--mut)";
+  const stat=(c)=>`<div class="metric"><div class="ml">${c.label}${c.unit&&c.unit!=="%"?` <span style="opacity:.6">${c.unit}</span>`:""}</div>
+      <div class="mv">${fmt(c)}</div>${c.date?`<div class="muted" style="font-size:10px">${c.date}</div>`:""}</div>`;
+  const r=d.risk, e=d.energy;
+  let h=`<div class="card" style="padding:14px 18px;margin-bottom:16px">
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+        ${d.flags.map(f=>`<div class="dir-chip" style="background:${tone(f.tone)}22;color:${tone(f.tone)};font-size:12px">${f.k}: ${f.v}</div>`).join("")}
+        <div class="muted" style="font-size:11px;margin-left:auto">as of ${d.as_of}</div>
+      </div></div>
+    <div class="card-row">
+      <div class="card"><h3>Rates &amp; Curve</h3><div class="sub">US Treasury yields · Fed funds</div>
+        <div class="mgrid" style="grid-template-columns:repeat(3,1fr);padding:4px 2px">
+          ${d.rates.map(stat).join("")}${stat(d.curve)}</div>
+        <div id="mcCurve" style="height:170px"></div></div>
+      <div class="card"><h3>Inflation &amp; Labor</h3><div class="sub">Breakevens · CPI · unemployment</div>
+        <div class="mgrid" style="grid-template-columns:repeat(3,1fr);padding:4px 2px">
+          ${stat(r.breakeven)}${stat(r.cpi_yoy)}${stat(r.unemployment)}${stat(r.dollar)}</div>
+        <div id="mcUST" style="height:170px"></div></div>
+    </div>
+    <div class="card-row">
+      <div class="card"><h3>Risk &amp; Credit</h3><div class="sub">Credit spreads · vol · financial conditions</div>
+        <div class="mgrid" style="grid-template-columns:repeat(3,1fr);padding:4px 2px">
+          ${stat(r.hy_oas)}${stat(r.vix)}${stat(r.nfci)}</div>
+        <div id="mcHY" style="height:150px"></div>
+        <div id="mcVIX" style="height:150px"></div></div>
+      <div class="card"><h3>Energy (EIA)</h3><div class="sub">Crude &amp; natural gas, spot &amp; inventories</div>
+        <div class="mgrid" style="grid-template-columns:repeat(2,1fr);padding:4px 2px">
+          ${stat(e.wti)}${stat(e.brent)}${stat(e.natgas)}${stat(e.crude_stocks)}</div>
+        <div id="mcWTI" style="height:150px"></div>
+        <div id="mcNG" style="height:150px"></div></div>
+    </div>`;
+  body.innerHTML=h;
+  const line=(id,s,rgb,suffix="")=>{
+    const el=document.getElementById(id); if(!el) return;
+    if(!s||!s.values||!s.values.length){el.innerHTML=`<div class="loading" style="font-size:11px">no series</div>`;return;}
+    Plotly.newPlot(id,[{x:s.dates,y:s.values,type:"scatter",mode:"lines",
+      line:{color:`rgb(${rgb})`,width:1.6},fill:"tozeroy",fillcolor:`rgba(${rgb},.08)`}],
+      baseLayout({yaxis:{...axis,ticksuffix:suffix},margin:{l:44,r:10,t:8,b:24}}),PLOT_CFG);
+  };
+  const C=d.charts;
+  line("mcCurve",C.curve,"207,159,69","%");
+  line("mcUST",C.ust10y,"109,151,207","%");
+  line("mcHY",C.hy_oas,"215,107,99","%");
+  line("mcVIX",C.vix,"154,127,209");
+  line("mcWTI",C.wti,"79,174,130");
+  line("mcNG",C.natgas,"91,182,199");
 }
 
 /* ---------- data quality / anomaly ---------- */
