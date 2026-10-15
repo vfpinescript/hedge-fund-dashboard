@@ -492,6 +492,96 @@ def macro_monitor():
     return out
 
 
+def macro_signals():
+    """Economically-grounded macro/energy overlays on broad US equity (SPY): each
+    holds equity only while a 'risk-on' condition holds, else sits in cash at the
+    live T-bill rate. Honestly scored vs buy & hold, deflated for the handful of
+    overlays tried. These are slow drawdown-control tools, not return engines, and
+    the DSR tells you whether each actually earns its place. Cached."""
+    if "macro_sig" in _CACHE:
+        return _CACHE["macro_sig"]
+    from quant.data import macro as M
+    from quant.data.loader import load_ohlcv
+    from quant.research.overfitting import deflated_sharpe_ratio
+
+    try:
+        spy = load_ohlcv("SPY", bars=3000)["close"]
+    except Exception as e:
+        return {"error": f"SPY load failed: {e}"}
+    ret = spy.pct_change().dropna()
+    rf_s = M.riskfree_series()
+    if len(rf_s):
+        rf = (rf_s.reindex(ret.index.union(rf_s.index)).sort_index().ffill()
+              .reindex(ret.index) / 252.0).fillna(0.02 / 252)
+    else:
+        rf = pd.Series(0.02 / 252, index=ret.index)
+
+    def metrics(r):
+        r = r.dropna()
+        eq = (1 + r).cumprod()
+        cagr = float(eq.iloc[-1] ** (252 / len(r)) - 1) if len(r) else 0.0
+        sh = _safe_sharpe(r)
+        mdd = float((eq / eq.cummax() - 1).min())
+        return cagr, sh, mdd
+
+    N_OVERLAYS = 3  # honest trial count for this small macro search
+
+    def overlay(cond, name, desc):
+        try:
+            # align the signal to SPY dates, then backtest ONLY over the window
+            # where the signal actually exists (do not force pre-signal years to
+            # cash, which would understate the strategy).
+            c = cond.astype(float).reindex(ret.index.union(cond.index)).sort_index() \
+                    .ffill().reindex(ret.index)
+            valid = c.dropna().index
+            if len(valid) < 250:
+                return {"name": name, "desc": desc, "error": "insufficient overlapping history"}
+            r = ret.reindex(valid)
+            rfx = rf.reindex(valid)
+            active = (c.reindex(valid) > 0.5).shift(1).fillna(False)
+            strat = pd.Series(np.where(active, r.values, rfx.values), index=valid)
+            cagr, sh, mdd = metrics(strat)
+            bh_c, _, bh_dd = metrics(r)                      # matched buy & hold (same window)
+            dsr = deflated_sharpe_ratio(strat.dropna().values, n_trials=N_OVERLAYS)
+            return {"name": name, "desc": desc, "cagr": round(cagr * 100, 1),
+                    "sharpe": sh, "max_dd": round(mdd * 100, 1),
+                    "dsr": round(float(dsr["dsr"]), 3) if np.isfinite(dsr["dsr"]) else None,
+                    "verdict": dsr["verdict"], "pct_invested": round(float(active.mean()) * 100),
+                    "years": round(len(valid) / 252, 1),
+                    "bh_cagr": round(bh_c * 100, 1), "bh_max_dd": round(bh_dd * 100, 1)}
+        except Exception as e:
+            return {"name": name, "desc": desc, "error": str(e)[:60]}
+
+    bcagr, bsh, bmdd = metrics(ret)
+    rows = [{"name": "Buy & Hold SPY", "desc": "always invested (baseline, full window)",
+             "cagr": round(bcagr * 100, 1), "sharpe": bsh, "max_dd": round(bmdd * 100, 1),
+             "dsr": None, "verdict": "baseline", "pct_invested": 100,
+             "years": round(len(ret) / 252, 1), "bh_cagr": None, "bh_max_dd": None}]
+    try:
+        hy = M.fred_series("BAMLH0A0HYM2")
+        rows.append(overlay(hy < hy.rolling(126).mean(),
+                            "Credit filter", "in SPY only when HY credit spread is below its 6-month average (risk-off when spreads widen)"))
+    except Exception:
+        pass
+    try:
+        cu = M.fred_series("T10Y2Y")
+        rows.append(overlay(cu > 0, "Curve filter", "in SPY only when the 10Y-2Y curve is positive (step aside when inverted)"))
+    except Exception:
+        pass
+    try:
+        nf = M.fred_series("NFCI")
+        rows.append(overlay(nf < 0, "Conditions filter", "in SPY only when financial conditions (NFCI) are loose (< 0)"))
+    except Exception:
+        pass
+
+    out = {"signals": rows,
+           "note": "Overlays on SPY, 1987-present where data allows, deflated for 3 trials. "
+                   "They mostly trade return for smaller drawdowns; judge them on whether the DSR "
+                   "clears and whether the drawdown improvement is worth the lost upside, not on CAGR alone."}
+    _CACHE["macro_sig"] = out
+    return out
+
+
 def desk_accounts():
     """The two additional Alpaca paper desks, each a separate account running one
     strategy: Trend (MA timing on SPY/QQQ/BTC/ETH) and Reversal (7d L/S on equity

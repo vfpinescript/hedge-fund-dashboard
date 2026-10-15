@@ -181,6 +181,14 @@ def api_macro():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/macro_signals")
+def api_macro_signals():
+    try:
+        return jsonify(compute.macro_signals())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/kalshi")
 def api_kalshi():
     try:

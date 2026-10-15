@@ -433,8 +433,10 @@ async function loadMacro(){
           ${stat(e.wti)}${stat(e.brent)}${stat(e.natgas)}${stat(e.crude_stocks)}</div>
         <div id="mcWTI" style="height:150px"></div>
         <div id="mcNG" style="height:150px"></div></div>
-    </div>`;
+    </div>
+    <div id="macroSignals"><div class="loading">Backtesting macro overlays on equity…</div></div>`;
   body.innerHTML=h;
+  loadMacroSignals();
   const line=(id,s,rgb,suffix="")=>{
     const el=document.getElementById(id); if(!el) return;
     if(!s||!s.values||!s.values.length){el.innerHTML=`<div class="loading" style="font-size:11px">no series</div>`;return;}
@@ -449,6 +451,34 @@ async function loadMacro(){
   line("mcVIX",C.vix,"154,127,209");
   line("mcWTI",C.wti,"79,174,130");
   line("mcNG",C.natgas,"91,182,199");
+}
+
+async function loadMacroSignals(){
+  const box=document.getElementById("macroSignals");
+  if(!box) return;
+  let d;
+  try{ d=await (await fetch("/api/macro_signals")).json(); }
+  catch(e){ box.innerHTML=""; return; }
+  if(d.error||!d.signals){ box.innerHTML=""; return; }
+  const vcol=v=>v==="robust"?"var(--pos)":v==="inconclusive"?"var(--warn)":v==="baseline"?"var(--mut)":"var(--neg)";
+  const rows=d.signals.map(s=>{
+    if(s.error) return `<tr><td>${s.name}</td><td colspan=7 class="muted">${s.error}</td></tr>`;
+    const bh=s.bh_cagr!=null?`<span class="muted">${s.bh_cagr}%</span>`:"–";
+    return `<tr><td><b>${s.name}</b><div class="muted" style="font-size:11px">${s.desc}</div></td>
+      <td class="num">${s.years}y</td>
+      <td class="num" style="color:${s.cagr>=0?'var(--pos)':'var(--neg)'}">${s.cagr}%</td>
+      <td class="num">${bh}</td>
+      <td class="num" style="color:var(--neg)">${s.max_dd}%</td>
+      <td class="num">${s.sharpe??'–'}</td>
+      <td class="num">${s.pct_invested}%</td>
+      <td class="num" style="color:${vcol(s.verdict)};font-weight:600">${s.dsr!=null?(s.dsr*100).toFixed(0)+'%':'–'} ${s.verdict!=='baseline'?s.verdict:''}</td></tr>`;
+  }).join("");
+  box.innerHTML=`<div class="card" style="margin-top:16px"><h3>Macro Overlays on Equity (SPY)</h3>
+    <div class="sub">Each overlay holds SPY only while a macro "risk-on" condition holds, else sits in cash at the live T-bill rate. Backtested over the window where the signal exists, deflated for the 3 overlays tried.</div>
+    <div style="overflow-x:auto;padding:4px 2px"><table class="labtable"><thead><tr>
+      <th>Overlay</th><th>Window</th><th>CAGR</th><th>vs&nbsp;B&amp;H</th><th>Max&nbsp;DD</th><th>Sharpe</th><th>%&nbsp;Inv</th><th>DSR</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin-top:8px">${d.note} These are drawdown-control tools, not return boosters: the honest read is whether the DSR clears <i>and</i> the smaller drawdown is worth the lost upside. Short FRED history here keeps samples small, treat as suggestive.</p></div>`;
 }
 
 /* ---------- data quality / anomaly ---------- */
