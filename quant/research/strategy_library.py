@@ -135,6 +135,23 @@ EFFECTIVE_TRIALS = 59
 DEFAULT_COST_BPS = 5.0
 
 
+def _riskfree_daily(index):
+    """Time-varying daily risk-free (cash & financing) rate aligned to `index`,
+    from FRED's 3-month T-bill (DGS3MO). Honest replacement for a flat 2%: cash
+    earned ~0% in 2021 and ~5% in 2024-26, and leverage financing costs track it.
+    Falls back to a flat 2%/yr if FRED is unavailable (keeps backtests runnable
+    offline)."""
+    try:
+        from quant.data.macro import riskfree_series
+        s = riskfree_series()
+        if len(s):
+            aligned = s.reindex(index.union(s.index)).sort_index().ffill().reindex(index)
+            return (aligned / 252.0).fillna(0.02 / 252)
+    except Exception:
+        pass
+    return pd.Series(0.02 / 252, index=index)
+
+
 def _strategy_returns(spec, instrument, cost_bps=DEFAULT_COST_BPS, bars=3000, vol_win=63):
     """One strategy on one instrument: vol-scaled, rebalanced at `hold`."""
     df = load_ohlcv(instrument, bars=bars)
@@ -146,7 +163,8 @@ def _strategy_returns(spec, instrument, cost_bps=DEFAULT_COST_BPS, bars=3000, vo
         close = df["close"]
         sma = close.rolling(p["window"]).mean()
         active = (close > sma).shift(1).fillna(False)
-        L, rf_d = p.get("leverage", 1.0), 0.02 / 252        # 2%/yr cash proxy
+        L = p.get("leverage", 1.0)
+        rf_d = _riskfree_daily(df.index)                    # live time-varying T-bill
         fee_d = p.get("fee_annual", 0.0) / 252
         lev = L * ret - (L - 1) * rf_d - fee_d
         strat = pd.Series(np.where(active, lev, rf_d), index=df.index)
