@@ -41,6 +41,8 @@
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 9l3-5 3 7 2-4 4 3"/><circle cx="13" cy="4" r="1.3"/></svg>Data Quality</button>
       <button class="tab" data-tab="macro">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2a9 9 0 010 12M8 2a9 9 0 000 12"/></svg>Macro Monitor</button>
+      <button class="tab" data-tab="news">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M4 6h5M4 8.5h5M4 11h3M11 6h1"/></svg>News Analyst</button>
       <button class="tab" data-tab="signals">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 1.5"/></svg>Live Signals</button>
       <button class="tab" data-tab="lab">
@@ -122,6 +124,18 @@
           </div>
         </div>
         <div id="analyticsBody"><div class="loading">Select a strategy and asset…</div></div>
+      </section>
+
+      <!-- NEWS ANALYST (experimental LLM research) -->
+      <section class="view hidden" id="view-news">
+        <div class="signals-head">
+          <div>
+            <h2>News Analyst <span class="badge-insample">EXPERIMENTAL · RESEARCH, NOT A SIGNAL</span></h2>
+            <p>An LLM reads recent headlines for one instrument and summarises the sentiment and drivers. This is a research input only: it never sizes a position, is not backtested, and is not DSR-gated. It sits entirely outside the systematic engine, read it, don't trade it.</p>
+          </div>
+          <select id="newsPicker" class="select"></select>
+        </div>
+        <div id="newsBody"><div class="loading">Select an instrument…</div></div>
       </section>
 
       <!-- MACRO & ENERGY MONITOR -->

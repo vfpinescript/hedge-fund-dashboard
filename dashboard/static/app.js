@@ -16,13 +16,14 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","forward","analytics","anomaly","macro","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","analytics","anomaly","macro","news","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
   if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
   if(name==="analytics" && !window._anLoaded){ loadAnalytics(); window._anLoaded=1; }
   if(name==="anomaly" && !window._anomLoaded){ loadAnomaly(); window._anomLoaded=1; }
   if(name==="macro" && !window._macroLoaded){ loadMacro(); window._macroLoaded=1; }
+  if(name==="news" && !window._newsLoaded){ initNews(); window._newsLoaded=1; }
   if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
   if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
@@ -393,6 +394,55 @@ function plotSurface(id,Sf,scale){
        yaxis:{title:Sf.ylabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        zaxis:{title:Sf.zlabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
+}
+
+/* ---------- news analyst (experimental LLM research) ---------- */
+async function initNews(){
+  const sel=document.getElementById("newsPicker");
+  try{
+    const lib=await (await fetch("/api/strategy_library")).json();
+    const g=lib.instrument_groups||{};
+    const want=["Stocks","ETFs","Crypto","Commodities","Indices"];
+    let html="";
+    want.forEach(k=>{ if(g[k]) html+=`<optgroup label="${k}">`+g[k].map(s=>`<option value="${s}">${s}</option>`).join("")+`</optgroup>`; });
+    sel.innerHTML=html||`<option value="NVDA">NVDA</option>`;
+  }catch(e){ sel.innerHTML=["NVDA","AAPL","MSFT","TSLA","BTCUSD"].map(s=>`<option>${s}</option>`).join(""); }
+  if([...sel.options].some(o=>o.value==="NVDA")) sel.value="NVDA";
+  sel.onchange=()=>loadNews(sel.value);
+  loadNews(sel.value);
+}
+async function loadNews(ticker){
+  const body=document.getElementById("newsBody");
+  body.innerHTML=`<div class="loading">Fetching headlines for ${ticker} and asking the analyst…</div>`;
+  let d;
+  try{ d=await (await fetch(`/api/news?ticker=${encodeURIComponent(ticker)}`)).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  const v=d.view||{};
+  const scol=s=>s==="bullish"?"var(--pos)":s==="bearish"?"var(--neg)":"var(--mut)";
+  let viewHTML;
+  if(v.configured===false){
+    viewHTML=`<div class="card"><h3>LLM View</h3><div class="sub" style="padding-bottom:14px">The headlines below are live. To enable the LLM sentiment read, set an <code>ANTHROPIC_API_KEY</code> in the environment (and, optionally, <code>ANTHROPIC_MODEL</code>, default <code>claude-haiku-5-5</code>). The analyst then summarises these headlines, as research only, never a trade trigger.</div></div>`;
+  } else if(v.error){
+    viewHTML=`<div class="card"><h3>LLM View</h3><div class="sub" style="padding-bottom:14px">LLM unavailable: ${v.error}</div></div>`;
+  } else {
+    viewHTML=`<div class="card"><h3>LLM View <span class="muted" style="font-weight:400;font-size:11px">${v.model||""}</span></h3>
+      <div style="padding:12px 18px 18px">
+        <div style="display:flex;gap:14px;align-items:center;margin-bottom:10px">
+          <div class="dir-chip" style="background:${scol(v.stance)}22;color:${scol(v.stance)};font-size:15px">${(v.stance||"—").toUpperCase()}</div>
+          <div class="muted" style="font-size:12px">confidence: ${v.confidence||"—"}</div>
+        </div>
+        <div style="font-size:14px;line-height:1.5;margin-bottom:12px">${v.summary||""}</div>
+        ${Array.isArray(v.drivers)&&v.drivers.length?`<div class="ml" style="margin-bottom:6px">Key drivers</div><ul style="margin:0 0 12px 18px;font-size:13px;line-height:1.6">${v.drivers.map(x=>`<li>${x}</li>`).join("")}</ul>`:""}
+        ${v.what_would_change_view?`<div class="ml">What would change the view</div><div style="font-size:13px;margin-top:4px">${v.what_would_change_view}</div>`:""}
+        <div class="muted" style="font-size:11px;margin-top:14px;border-top:1px solid var(--line-2);padding-top:10px">LLM-generated from the headlines below. Research commentary, not investment advice and not a trade signal.</div>
+      </div></div>`;
+  }
+  const heads=(d.headlines||[]).map(h=>`<tr><td style="font-size:13px">${h.title}</td><td class="muted" style="font-size:11px;white-space:nowrap">${h.source||""}</td><td class="muted" style="font-size:11px;white-space:nowrap">${h.date||""}</td></tr>`).join("");
+  body.innerHTML=`${viewHTML}
+    <div class="card" style="margin-top:16px"><h3>Recent Headlines · ${d.ticker}</h3>
+      <div class="sub">Live from Google News (search: "${d.query}") · ${d.as_of}</div>
+      <div style="overflow-x:auto"><table class="labtable"><tbody>${heads||`<tr><td class="muted">No headlines found.</td></tr>`}</tbody></table></div></div>`;
 }
 
 /* ---------- macro & energy monitor ---------- */

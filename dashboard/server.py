@@ -189,6 +189,14 @@ def api_macro_signals():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/news")
+def api_news():
+    try:
+        return jsonify(compute.news_view(request.args.get("ticker", "AAPL")))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/kalshi")
 def api_kalshi():
     try:

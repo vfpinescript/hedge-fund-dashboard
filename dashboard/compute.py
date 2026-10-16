@@ -404,6 +404,14 @@ def anomaly_scan():
     return out
 
 
+def news_view(ticker):
+    """Experimental LLM news/sentiment analyst for one ticker. Report-only, not a
+    signal; delegates to quant.agents.news_analyst (handles caching + graceful
+    degradation when no ANTHROPIC_API_KEY is set)."""
+    from quant.agents.news_analyst import analyze
+    return analyze(ticker)
+
+
 def macro_monitor():
     """Live macro (FRED) + energy (EIA) dashboard payload: headline indicators,
     chart series, and a few derived regime flags. Cached per process (the macro
