@@ -63,6 +63,12 @@ STRATEGIES = {
     "ma_cross": {"name": "MA Crossover (50/200)", "family": "trend",
                  "desc": "Long when the 50-day average is above the 200-day, short when below. The golden/death cross.",
                  "fn": "ma_cross_sig", "params": {"fast": 50, "slow": 200}, "hold": 5},
+    # Pairs statistical arbitrage: pick an economically-linked PAIR (e.g. KO/PEP)
+    # as the 'asset'. Long the laggard / short the leader when the log-spread
+    # z-score stretches past +/-2, exit near 0. Net of transaction + borrow costs.
+    "pairs_statarb": {"name": "Pairs Stat-Arb (z-reversion)", "family": "stat-arb",
+                      "desc": "Buy the laggard, short the leader of a linked pair when their spread diverges (|z|>2), bet on convergence. Choose a pair as the asset. Net of costs; the famous KO/PEP pair loses money.",
+                      "fn": None, "mode": "pairs", "params": {}, "hold": 1},
 }
 
 
@@ -154,6 +160,15 @@ def _riskfree_daily(index):
 
 def _strategy_returns(spec, instrument, cost_bps=DEFAULT_COST_BPS, bars=3000, vol_win=63):
     """One strategy on one instrument: vol-scaled, rebalanced at `hold`."""
+    # pairs mode: `instrument` is a pair "A/B"; delegate to the pairs engine.
+    if spec.get("mode") == "pairs":
+        from quant.research.pairs import pair_returns
+        a, _, b = (instrument or "").partition("/")
+        strat, bench = pair_returns(a.strip().upper(), b.strip().upper())
+        if strat is None or len(strat) < 250:
+            raise RuntimeError(f"no pair data for {instrument}")
+        return strat, bench
+
     df = load_ohlcv(instrument, bars=bars)
     ret = df["close"].pct_change()
 
@@ -208,7 +223,12 @@ def run_strategy(strategy_id, instrument, cost_bps=DEFAULT_COST_BPS) -> dict:
         return {"error": f"insufficient history for {instrument}"}
 
     m = perf_metrics(strat)
-    dsr = deflated_sharpe_ratio(strat.values, n_trials=EFFECTIVE_TRIALS)
+    if spec.get("mode") == "pairs":
+        from quant.research.pairs import PAIRS
+        n_trials = len(PAIRS)                       # deflate by the pairs searched
+    else:
+        n_trials = EFFECTIVE_TRIALS
+    dsr = deflated_sharpe_ratio(strat.values, n_trials=n_trials)
     eq = (1 + strat).cumprod()
     bh = (1 + ret.reindex(strat.index).fillna(0)).cumprod()
     dd = (eq / eq.cummax() - 1) * 100
@@ -233,8 +253,12 @@ def run_strategy(strategy_id, instrument, cost_bps=DEFAULT_COST_BPS) -> dict:
 
 
 def library():
+    from quant.research.pairs import PAIRS
     return {
-        "strategies": [{"id": k, **{f: v[f] for f in ("name", "family", "desc")}}
+        "strategies": [{"id": k, "mode": v.get("mode"),
+                        **{f: v[f] for f in ("name", "family", "desc")}}
                        for k, v in STRATEGIES.items()],
         "instrument_groups": INSTRUMENT_GROUPS,
+        # the Pairs Stat-Arb strategy swaps the asset list for these pairs
+        "pair_instruments": {"Pairs": [f"{a}/{b}" for a, b in PAIRS]},
     }

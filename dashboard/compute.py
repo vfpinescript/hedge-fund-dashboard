@@ -812,6 +812,8 @@ def forward_test(start=FORWARD_START):
     from quant.research.strategy_library import _strategy_returns, STRATEGIES
     rows = []
     for sid, spec in STRATEGIES.items():
+        if spec.get("mode") == "pairs":          # pairs need a pair, not a single ticker
+            continue
         for asset in MATRIX_ASSETS:
             try:
                 strat, _ = _strategy_returns(spec, asset)
@@ -876,7 +878,7 @@ def strategy_matrix():
         return _CACHE["matrix"]
     from quant.research.strategy_library import run_strategy, STRATEGIES
     strat_meta = [{"id": k, "name": v["name"], "family": v["family"]}
-                  for k, v in STRATEGIES.items()]
+                  for k, v in STRATEGIES.items() if v.get("mode") != "pairs"]
     rows = []
     for asset in MATRIX_ASSETS:
         cells = {}

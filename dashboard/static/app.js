@@ -41,24 +41,35 @@ const METRICS = [
   ["risk_reward","Risk–Reward Ratio","num",""],["max_win_streak","Max Win Streak","int",""],
   ["time_in_dd","Time in DD","pct",""],["max_loss_streak","Max Losing Streak","int",""],
 ];
-let ASSET_GROUPS={}, CUR_STRAT="reversal_7", CUR_ASSET=null;
+let ASSET_GROUPS={}, PAIR_GROUPS={}, STRAT_MODE={}, CUR_STRAT="reversal_7", CUR_ASSET=null;
 
 async function loadStrategies(){
   const lib = await (await fetch("/api/strategy_library")).json();
   const picker=document.getElementById("stratPicker");
   picker.innerHTML=lib.strategies.map(s=>`<option value="${s.id}">${s.name}</option>`).join("");
+  lib.strategies.forEach(s=>STRAT_MODE[s.id]=s.mode||"");
   if([...picker.options].some(o=>o.value===CUR_STRAT)) picker.value=CUR_STRAT; else CUR_STRAT=picker.value;
-  picker.onchange=()=>{ CUR_STRAT=picker.value; if(CUR_ASSET) selectAsset(CUR_ASSET); };
   ASSET_GROUPS=lib.instrument_groups;
+  PAIR_GROUPS=lib.pair_instruments||{};
+  picker.onchange=()=>{ CUR_STRAT=picker.value; renderAssetList(); };
+  renderAssetList();
+}
+
+function renderAssetList(){
+  // Pairs Stat-Arb swaps the asset list for the pair universe (KO/PEP ...).
+  const groups = STRAT_MODE[CUR_STRAT]==="pairs" ? PAIR_GROUPS : ASSET_GROUPS;
   const list=document.getElementById("stratList");
   let html="";
-  for(const [g,syms] of Object.entries(ASSET_GROUPS)){
+  for(const [g,syms] of Object.entries(groups)){
     html+=`<div class="list-head">${g}</div>`;
     for(const s of syms) html+=`<div class="strat-item" data-asset="${s}"><div class="si-top"><span class="si-name">${s}</span></div></div>`;
   }
   list.innerHTML=html;
   list.querySelectorAll(".strat-item").forEach(el=>el.onclick=()=>selectAsset(el.dataset.asset));
-  const first=list.querySelector(".strat-item"); if(first) selectAsset(first.dataset.asset);
+  const items=[...list.querySelectorAll(".strat-item")];
+  const keep=CUR_ASSET && items.find(el=>el.dataset.asset===CUR_ASSET);
+  const target=keep?CUR_ASSET:(items[0]&&items[0].dataset.asset);
+  if(target) selectAsset(target);
 }
 
 function selectAsset(asset){
@@ -69,10 +80,10 @@ function selectAsset(asset){
 
 // entry point from the Strategy Matrix: set strategy + asset, then show the page
 function openStrategy(strat, asset){
-  CUR_STRAT=strat;
+  CUR_STRAT=strat; CUR_ASSET=asset;
   const picker=document.getElementById("stratPicker"); if(picker && [...picker.options].some(o=>o.value===strat)) picker.value=strat;
   showTab("strategies");
-  selectAsset(asset);
+  renderAssetList();
 }
 
 function dsrChip(dsr, verdict){
@@ -407,7 +418,8 @@ async function loadPairs(){
   if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
   const vcol=v=>v==="robust"?"var(--pos)":v==="inconclusive"?"var(--warn)":"var(--neg)";
   const ko=(d.pairs||[]).find(r=>r.a==="KO");
-  const koTxt=ko?`The famous KO/PEP pair itself comes in at Sharpe ${ko.sharpe}, CAGR ${ko.cagr}% — <b style="color:var(--neg)">it loses money</b> net of costs.`:"";
+  const koVerd=ko?(ko.cagr<0?`<b style="color:var(--neg)">it loses money</b>`:`<b style="color:var(--warn)">it makes essentially nothing</b>`):"";
+  const koTxt=ko?`The famous KO/PEP pair itself comes in at Sharpe ${ko.sharpe}, CAGR ${ko.cagr}%/yr — ${koVerd} net of costs.`:"";
   let h=`<div class="card" style="padding:16px 18px;margin-bottom:16px;border-left:3px solid var(--neg)">
     <div class="ml" style="margin-bottom:6px">The honest verdict</div>
     <div style="font-size:13.5px;line-height:1.6">The viral "46,000% since 1972" figure is survivorship + cherry-picking, and it ignores shorting costs. Tested honestly across <b>${d.n}</b> pairs, net of ${d.cost_bps}bp/side + ${Math.round(d.borrow_annual*100)}% borrow and deflated by the number of pairs:

@@ -80,6 +80,30 @@ def _half_life(spread: pd.Series) -> float:
         return float("nan")
 
 
+def pair_returns(a: str, b: str, bars: int = 8000):
+    """Daily strategy return series and an equal-weight buy&hold benchmark for a
+    pair, net of costs. Returns (strat, bench) pandas Series, or (None, None).
+    Shared by the Pairs page and the Pairs-Stat-Arb strategy so both agree."""
+    try:
+        pa = load_ohlcv(a, bars=bars)["close"]
+        pb = load_ohlcv(b, bars=bars)["close"]
+    except Exception:
+        return None, None
+    df = pd.concat([pa.rename("A"), pb.rename("B")], axis=1).dropna()
+    if len(df) < 300:
+        return None, None
+    spread = np.log(df["A"]) - np.log(df["B"])
+    z = (spread - spread.rolling(WINDOW).mean()) / spread.rolling(WINDOW).std()
+    pos = pd.Series(_positions(z.values), index=df.index)
+    retA, retB = df["A"].pct_change(), df["B"].pct_change()
+    gross = pos.shift(1) * (retA - retB) / 2.0
+    cost = pos.diff().abs().fillna(0.0) * (COST_BPS / 1e4)
+    borrow = pos.abs() * 0.5 * (BORROW_ANNUAL / 252.0)
+    strat = (gross - cost - borrow)
+    bench = (retA + retB) / 2.0
+    return strat.dropna(), bench.reindex(strat.dropna().index)
+
+
 def backtest_pair(a: str, b: str, bars: int = 8000) -> dict:
     try:
         pa = load_ohlcv(a, bars=bars)["close"]
