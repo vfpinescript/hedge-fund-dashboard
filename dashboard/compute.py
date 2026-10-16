@@ -6,6 +6,7 @@ cached in-process so the UI stays snappy.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -401,6 +402,37 @@ def anomaly_scan():
            "assets": assets, "market": mkt, "lof_outlier_days": lof_days,
            "total_bad_ticks": sum(a["bad_ticks_cleaned"] for a in assets)}
     _CACHE["anomaly"] = out
+    return out
+
+
+def congress_trades():
+    """Recent US congressional stock/bond disclosures (Senate + House) via FMP,
+    plus a most-active-tickers summary. Informational, not a signal. Cached."""
+    if "congress" in _CACHE:
+        return _CACHE["congress"]
+    from quant.data.congress import latest_trades, amount_mid
+    trades = latest_trades()
+    from collections import defaultdict
+    agg = defaultdict(lambda: {"ticker": "", "buys": 0, "sells": 0, "vol": 0.0})
+    for t in trades:
+        tk = t.get("ticker")
+        if not tk:
+            continue
+        a = agg[tk]
+        a["ticker"] = tk
+        ty = (t.get("type") or "").lower()
+        if ty.startswith("p") or ty.startswith("buy"):
+            a["buys"] += 1
+        elif ty.startswith("s"):
+            a["sells"] += 1
+        a["vol"] += amount_mid(t.get("amount"))
+    top = sorted(agg.values(), key=lambda x: -(x["buys"] + x["sells"]))[:15]
+    for a in top:
+        a["vol"] = round(a["vol"])
+    out = {"as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+           "n": len(trades), "configured": bool(os.environ.get("FMP_API_KEY")),
+           "trades": trades[:250], "top_tickers": top}
+    _CACHE["congress"] = out
     return out
 
 

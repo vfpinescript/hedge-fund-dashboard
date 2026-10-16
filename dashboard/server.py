@@ -197,6 +197,14 @@ def api_news():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/congress")
+def api_congress():
+    try:
+        return jsonify(compute.congress_trades())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/kalshi")
 def api_kalshi():
     try:

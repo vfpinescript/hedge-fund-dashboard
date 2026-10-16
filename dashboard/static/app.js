@@ -16,7 +16,7 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","forward","analytics","anomaly","macro","news","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","analytics","anomaly","macro","news","congress","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
   if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
@@ -24,6 +24,7 @@ function showTab(name){
   if(name==="anomaly" && !window._anomLoaded){ loadAnomaly(); window._anomLoaded=1; }
   if(name==="macro" && !window._macroLoaded){ loadMacro(); window._macroLoaded=1; }
   if(name==="news" && !window._newsLoaded){ initNews(); window._newsLoaded=1; }
+  if(name==="congress" && !window._congLoaded){ loadCongress(); window._congLoaded=1; }
   if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
   if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
@@ -394,6 +395,45 @@ function plotSurface(id,Sf,scale){
        yaxis:{title:Sf.ylabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        zaxis:{title:Sf.zlabel||"",gridcolor:"#2a3341",backgroundcolor:"transparent",showbackground:false},
        camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
+}
+
+/* ---------- congress trades ---------- */
+let CONGRESS=null;
+async function loadCongress(){
+  const body=document.getElementById("congressBody");
+  try{ CONGRESS=await (await fetch("/api/congress")).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(CONGRESS.error){ body.innerHTML=`<div class="loading">${CONGRESS.error}</div>`; return; }
+  if(!CONGRESS.configured){ body.innerHTML=`<div class="loading">No FMP key configured, congressional data needs the FMP_API_KEY (already in your env for the deployed app).</div>`; return; }
+  document.getElementById("congChamber").onchange=renderCongress;
+  document.getElementById("congType").onchange=renderCongress;
+  renderCongress();
+}
+function renderCongress(){
+  const ch=document.getElementById("congChamber").value;
+  const ty=document.getElementById("congType").value;
+  let rows=(CONGRESS.trades||[]).filter(t=>(!ch||t.chamber===ch)&&(!ty||(t.type||"").toLowerCase().startsWith(ty[0])));
+  const tcol=t=>{const s=(t||"").toLowerCase();return s.startsWith("p")||s.startsWith("buy")?"var(--pos)":s.startsWith("s")?"var(--neg)":"var(--mut)";};
+  const top=(CONGRESS.top_tickers||[]).filter(a=>a.ticker);
+  const chips=top.slice(0,12).map(a=>{
+    const net=a.buys-a.sells, c=net>0?"var(--pos)":net<0?"var(--neg)":"var(--mut)";
+    return `<div class="dir-chip" style="background:${c}22;color:${c};font-size:12px">${a.ticker} · ${a.buys}B/${a.sells}S</div>`;
+  }).join("");
+  const body=rows.slice(0,200).map(t=>`<tr>
+      <td style="white-space:nowrap">${t.name}<div class="muted" style="font-size:10px">${t.chamber}${t.district?" · "+t.district:""}</div></td>
+      <td><b>${t.ticker||"—"}</b><div class="muted" style="font-size:10px">${(t.asset||"").slice(0,32)}</div></td>
+      <td style="color:${tcol(t.type)};font-weight:700;white-space:nowrap">${t.type||""}</td>
+      <td class="num" style="white-space:nowrap">${t.amount||""}</td>
+      <td class="muted" style="white-space:nowrap">${t.transactionDate||""}</td>
+      <td class="muted" style="white-space:nowrap">${t.disclosureDate||""}${t.link?` · <a href="${t.link}" target="_blank" rel="noopener" style="color:var(--blue)">src</a>`:""}</td></tr>`).join("");
+  document.getElementById("congressBody").innerHTML=`
+    <div class="card" style="padding:14px 18px;margin-bottom:16px">
+      <div class="ml" style="margin-bottom:8px">Most-active tickers in this feed (B = disclosed buys, S = sells)</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${chips||'<span class="muted">—</span>'}</div>
+      <div class="muted" style="font-size:11px;margin-top:10px">${rows.length} of ${CONGRESS.n} recent disclosures · as of ${CONGRESS.as_of}</div></div>
+    <div class="card"><h3>Recent Disclosures</h3><div class="sub">Newest first · amounts are disclosed ranges · click "src" for the official filing</div>
+      <div style="overflow-x:auto"><table class="labtable"><thead><tr><th>Member</th><th>Ticker / Asset</th><th>Type</th><th>Amount</th><th>Traded</th><th>Disclosed</th></tr></thead>
+      <tbody>${body||`<tr><td colspan=6 class="muted">No matching disclosures.</td></tr>`}</tbody></table></div></div>`;
 }
 
 /* ---------- news analyst (experimental LLM research) ---------- */
