@@ -405,33 +405,61 @@ def anomaly_scan():
     return out
 
 
+def pairs_trading():
+    """Statistical-arbitrage backtest across ~50 economically-linked pairs, net of
+    transaction + short-borrow costs and DSR-deflated by the number of pairs.
+    Cached (first run loads prices for ~100 tickers)."""
+    if "pairs" in _CACHE:
+        return _CACHE["pairs"]
+    from quant.research.pairs import run_all
+    out = run_all()
+    _CACHE["pairs"] = out
+    return out
+
+
 def congress_trades():
     """Recent US congressional stock/bond disclosures (Senate + House) via FMP,
     plus a most-active-tickers summary. Informational, not a signal. Cached."""
     if "congress" in _CACHE:
         return _CACHE["congress"]
-    from quant.data.congress import latest_trades, amount_mid
+    from quant.data.congress import latest_trades, latest_insider, amount_mid
     trades = latest_trades()
     from collections import defaultdict
     agg = defaultdict(lambda: {"ticker": "", "buys": 0, "sells": 0, "vol": 0.0})
+    tot_buys = tot_sells = 0
     for t in trades:
+        ty = (t.get("type") or "").lower()
+        is_buy = ty.startswith("p") or ty.startswith("buy")
+        is_sell = ty.startswith("s")
+        if is_buy:
+            tot_buys += 1
+        elif is_sell:
+            tot_sells += 1
         tk = t.get("ticker")
         if not tk:
             continue
         a = agg[tk]
         a["ticker"] = tk
-        ty = (t.get("type") or "").lower()
-        if ty.startswith("p") or ty.startswith("buy"):
+        if is_buy:
             a["buys"] += 1
-        elif ty.startswith("s"):
+        elif is_sell:
             a["sells"] += 1
         a["vol"] += amount_mid(t.get("amount"))
-    top = sorted(agg.values(), key=lambda x: -(x["buys"] + x["sells"]))[:15]
-    for a in top:
+    ranked = sorted(agg.values(), key=lambda x: -(x["buys"] + x["sells"]))
+    for a in ranked:
         a["vol"] = round(a["vol"])
+        a["net"] = a["buys"] - a["sells"]
+    top = ranked[:15]
+    net_bought = sorted([a for a in ranked if a["net"] > 0], key=lambda x: -x["net"])[:8]
+    net_sold = sorted([a for a in ranked if a["net"] < 0], key=lambda x: x["net"])[:8]
+    # corporate insider feed (separate dataset)
+    insider = latest_insider()
     out = {"as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
            "n": len(trades), "configured": bool(os.environ.get("FMP_API_KEY")),
-           "trades": trades[:250], "top_tickers": top}
+           "trades": trades[:250], "top_tickers": top,
+           "net": {"buys": tot_buys, "sells": tot_sells,
+                   "net_bought": net_bought, "net_sold": net_sold},
+           "insider": insider[:40]}
     _CACHE["congress"] = out
     return out
 

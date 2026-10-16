@@ -76,3 +76,43 @@ def latest_trades(pages: int = 2) -> list[dict]:
     out.sort(key=lambda x: x.get("disclosureDate") or "", reverse=True)
     _CACHE[key] = (time.time(), out)
     return out
+
+
+def latest_insider(pages: int = 1) -> list[dict]:
+    """Recent corporate insider (exec/director) Form-4 transactions via FMP."""
+    key = f"insider:{pages}"
+    hit = _CACHE.get(key)
+    if hit and time.time() - hit[0] < _TTL:
+        return hit[1]
+    api = os.environ.get("FMP_API_KEY")
+    out: list[dict] = []
+    if api:
+        for p in range(pages):
+            try:
+                r = requests.get(f"{BASE}/insider-trading/latest",
+                                 params={"page": p, "apikey": api}, timeout=25)
+                if r.status_code != 200:
+                    break
+                data = r.json()
+                if not isinstance(data, list) or not data:
+                    break
+                for rec in data:
+                    ad = (rec.get("acquisitionOrDisposition") or "").upper()
+                    shares = rec.get("securitiesTransacted") or 0
+                    price = rec.get("price") or 0
+                    out.append({
+                        "ticker": (rec.get("symbol") or "").strip(),
+                        "name": rec.get("reportingName", ""),
+                        "role": rec.get("typeOfOwner", ""),
+                        "side": "Buy" if ad == "A" else "Sell" if ad == "D" else ad,
+                        "shares": shares, "price": price,
+                        "value": round(float(shares) * float(price)) if shares and price else 0,
+                        "date": rec.get("transactionDate", ""),
+                        "filed": rec.get("filingDate", ""),
+                        "formType": rec.get("transactionType", ""),
+                    })
+            except Exception:
+                break
+    out.sort(key=lambda x: x.get("filed") or "", reverse=True)
+    _CACHE[key] = (time.time(), out)
+    return out

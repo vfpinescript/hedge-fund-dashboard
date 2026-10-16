@@ -16,7 +16,7 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","forward","analytics","anomaly","macro","news","congress","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","analytics","anomaly","macro","news","congress","pairs","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
   if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
@@ -25,6 +25,7 @@ function showTab(name){
   if(name==="macro" && !window._macroLoaded){ loadMacro(); window._macroLoaded=1; }
   if(name==="news" && !window._newsLoaded){ initNews(); window._newsLoaded=1; }
   if(name==="congress" && !window._congLoaded){ loadCongress(); window._congLoaded=1; }
+  if(name==="pairs" && !window._pairsLoaded){ loadPairs(); window._pairsLoaded=1; }
   if(name==="live" && !window._liveLoaded){ loadLive(); window._liveLoaded=1; }
   if(name==="signals" && !window._sigLoaded){ loadSignals(); window._sigLoaded=1; }
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
@@ -397,6 +398,43 @@ function plotSurface(id,Sf,scale){
        camera:{eye:{x:1.6,y:-1.5,z:.9}}}},PLOT_CFG);
 }
 
+/* ---------- pairs trading (stat-arb) ---------- */
+async function loadPairs(){
+  const body=document.getElementById("pairsBody");
+  let d;
+  try{ d=await (await fetch("/api/pairs")).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  const vcol=v=>v==="robust"?"var(--pos)":v==="inconclusive"?"var(--warn)":"var(--neg)";
+  const ko=(d.pairs||[]).find(r=>r.a==="KO");
+  const koTxt=ko?`The famous KO/PEP pair itself comes in at Sharpe ${ko.sharpe}, CAGR ${ko.cagr}% — <b style="color:var(--neg)">it loses money</b> net of costs.`:"";
+  let h=`<div class="card" style="padding:16px 18px;margin-bottom:16px;border-left:3px solid var(--neg)">
+    <div class="ml" style="margin-bottom:6px">The honest verdict</div>
+    <div style="font-size:13.5px;line-height:1.6">The viral "46,000% since 1972" figure is survivorship + cherry-picking, and it ignores shorting costs. Tested honestly across <b>${d.n}</b> pairs, net of ${d.cost_bps}bp/side + ${Math.round(d.borrow_annual*100)}% borrow and deflated by the number of pairs:
+      <b style="color:${d.n_robust>0?'var(--pos)':'var(--neg)'}">${d.n_robust} of ${d.n} are robust (DSR&gt;95%)</b>, ${d.n_inconclusive} inconclusive, median Sharpe <b>${d.median_sharpe}</b>. ${koTxt}
+      This edge was real decades ago but has been largely arbitraged away. <b>Not something to trade mechanically.</b></div></div>`;
+  const rows=(d.pairs||[]).map(r=>{
+    const divergent=r.z_now!=null&&Math.abs(r.z_now)>=(d.z_entry||2);
+    return `<tr>
+      <td><b>${r.a} / ${r.b}</b></td>
+      <td class="num muted">${r.years}y</td>
+      <td class="num">${r.corr}</td>
+      <td class="num muted">${r.half_life!=null?r.half_life+"d":"–"}</td>
+      <td class="num" style="color:${r.cagr>=0?'var(--pos)':'var(--neg)'}">${r.cagr}%</td>
+      <td class="num">${r.sharpe!=null?r.sharpe:"–"}</td>
+      <td class="num" style="color:var(--neg)">${r.max_dd}%</td>
+      <td class="num" style="color:${vcol(r.verdict)};font-weight:600">${r.dsr!=null?(r.dsr*100).toFixed(0)+"%":"–"}</td>
+      <td class="num" style="color:${divergent?'var(--gold)':'var(--mut)'}">${r.z_now!=null?r.z_now:"–"}</td>
+      <td class="muted" style="font-size:11px">${divergent?r.signal:"—"}</td></tr>`;
+  }).join("");
+  h+=`<div class="card"><h3>All Pairs · net of costs · DSR-deflated</h3>
+    <div class="sub">Sorted by Sharpe. z-now is today's divergence (|z|&ge;${d.z_entry} = stretched); the signal names the laggard to buy / leader to short IF you believed in reversion. DSR colour: red overfit / amber inconclusive / green robust.</div>
+    <div style="overflow-x:auto"><table class="labtable"><thead><tr>
+      <th>Pair</th><th>Window</th><th>Corr</th><th>Half-life</th><th>CAGR</th><th>Sharpe</th><th>Max&nbsp;DD</th><th>DSR</th><th>z&nbsp;now</th><th>Signal</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`;
+  body.innerHTML=h;
+}
+
 /* ---------- congress trades ---------- */
 let CONGRESS=null;
 async function loadCongress(){
@@ -426,14 +464,41 @@ function renderCongress(){
       <td class="num" style="white-space:nowrap">${t.amount||""}</td>
       <td class="muted" style="white-space:nowrap">${t.transactionDate||""}</td>
       <td class="muted" style="white-space:nowrap">${t.disclosureDate||""}${t.link?` · <a href="${t.link}" target="_blank" rel="noopener" style="color:var(--blue)">src</a>`:""}</td></tr>`).join("");
+  const net=CONGRESS.net||{};
+  const chip2=(a,sign)=>`<div class="dir-chip" style="background:${sign>0?'var(--pos)':'var(--neg)'}22;color:${sign>0?'var(--pos)':'var(--neg)'};font-size:12px">${a.ticker} ${a.net>0?'+':''}${a.net}</div>`;
+  const netStrip=`<div class="card" style="padding:14px 18px;margin-bottom:16px">
+      <div style="display:flex;gap:30px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <div><div class="ml">Disclosed buys</div><div class="mv" style="color:var(--pos)">${net.buys||0}</div></div>
+        <div><div class="ml">Disclosed sells</div><div class="mv" style="color:var(--neg)">${net.sells||0}</div></div>
+        <div><div class="ml">Net tilt</div><div class="mv" style="color:${(net.buys||0)>=(net.sells||0)?'var(--pos)':'var(--neg)'}">${(net.buys||0)-(net.sells||0)>=0?'+':''}${(net.buys||0)-(net.sells||0)}</div></div>
+        <div class="muted" style="font-size:11px;max-width:300px">Net buy/sell tilt across the recent disclosure feed. Lagged up to 45 days, directional colour, not a signal.</div>
+      </div>
+      <div style="display:flex;gap:26px;flex-wrap:wrap">
+        <div><div class="ml" style="margin-bottom:5px">Most net-bought</div><div style="display:flex;gap:6px;flex-wrap:wrap">${(net.net_bought||[]).map(a=>chip2(a,1)).join("")||'<span class="muted">—</span>'}</div></div>
+        <div><div class="ml" style="margin-bottom:5px">Most net-sold</div><div style="display:flex;gap:6px;flex-wrap:wrap">${(net.net_sold||[]).map(a=>chip2(a,-1)).join("")||'<span class="muted">—</span>'}</div></div>
+      </div></div>`;
+  const ins=(CONGRESS.insider||[]);
+  const insRows=ins.map(i=>`<tr>
+      <td><b>${i.ticker||"—"}</b></td>
+      <td style="font-size:12px">${i.name||""}<div class="muted" style="font-size:10px">${i.role||""}</div></td>
+      <td style="color:${(i.side||'').toLowerCase().startsWith('b')?'var(--pos)':'var(--neg)'};font-weight:700">${i.side||""}</td>
+      <td class="num">${(i.shares||0).toLocaleString()}</td>
+      <td class="num">${i.value?('$'+Number(i.value).toLocaleString()):(i.formType||'')}</td>
+      <td class="muted" style="font-size:11px">${i.filed||""}</td></tr>`).join("");
+  const insCard=`<div class="card" style="margin-top:16px"><h3>Corporate Insider Trades <span class="badge-insample" style="vertical-align:middle">PUBLIC RECORD</span></h3>
+      <div class="sub">Recent exec/director Form-4 filings (FMP). Price $0 = a grant/award, not an open-market buy. Separate dataset from Congress.</div>
+      <div style="overflow-x:auto"><table class="labtable"><thead><tr><th>Ticker</th><th>Insider</th><th>Side</th><th>Shares</th><th>Value / Form</th><th>Filed</th></tr></thead>
+      <tbody>${insRows||`<tr><td colspan=6 class="muted">No insider filings.</td></tr>`}</tbody></table></div></div>`;
   document.getElementById("congressBody").innerHTML=`
+    ${netStrip}
     <div class="card" style="padding:14px 18px;margin-bottom:16px">
       <div class="ml" style="margin-bottom:8px">Most-active tickers in this feed (B = disclosed buys, S = sells)</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${chips||'<span class="muted">—</span>'}</div>
       <div class="muted" style="font-size:11px;margin-top:10px">${rows.length} of ${CONGRESS.n} recent disclosures · as of ${CONGRESS.as_of}</div></div>
     <div class="card"><h3>Recent Disclosures</h3><div class="sub">Newest first · amounts are disclosed ranges · click "src" for the official filing</div>
       <div style="overflow-x:auto"><table class="labtable"><thead><tr><th>Member</th><th>Ticker / Asset</th><th>Type</th><th>Amount</th><th>Traded</th><th>Disclosed</th></tr></thead>
-      <tbody>${body||`<tr><td colspan=6 class="muted">No matching disclosures.</td></tr>`}</tbody></table></div></div>`;
+      <tbody>${body||`<tr><td colspan=6 class="muted">No matching disclosures.</td></tr>`}</tbody></table></div></div>
+    ${insCard}`;
 }
 
 /* ---------- news analyst (experimental LLM research) ---------- */

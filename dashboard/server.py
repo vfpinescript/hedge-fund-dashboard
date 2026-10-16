@@ -205,6 +205,14 @@ def api_congress():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/pairs")
+def api_pairs():
+    try:
+        return jsonify(compute.pairs_trading())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/kalshi")
 def api_kalshi():
     try:
