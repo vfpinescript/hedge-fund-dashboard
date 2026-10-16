@@ -95,19 +95,28 @@ def load_ohlcv(instrument: str, timeframe: str = "1d", bars: int = 2000,
     if use_cache and cache.exists() and (time.time() - cache.stat().st_mtime) < _CACHE_TTL_SECONDS:
         df = pd.read_parquet(cache)
     else:
-        # ~2000 daily bars ≈ 8y; cap request span accordingly.
-        period = "max" if bars > 1250 else "5y"
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            raw = yf.download(yh, period=period, interval=timeframe,
-                              progress=False, auto_adjust=True)
-        if raw is None or len(raw) == 0:
-            raise RuntimeError(f"no data for {instrument} ({yh})")
-        # Flatten possible multi-index columns from yfinance.
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = raw.columns.get_level_values(0)
-        df = raw.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]]
-        df.index.name = "date"
+        df = None
+        # PRIMARY: London Strategic Edge databank (clean, split-adjusted, deep
+        # history). Falls through to Yahoo when LSE lacks the symbol.
+        try:
+            from quant.data.lse import load as _lse_load
+            df = _lse_load(instrument, timeframe=timeframe, bars=bars)
+        except Exception:
+            df = None
+        if df is None or len(df) == 0:
+            # FALLBACK: Yahoo Finance.
+            period = "max" if bars > 1250 else "5y"
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                raw = yf.download(yh, period=period, interval=timeframe,
+                                  progress=False, auto_adjust=True)
+            if raw is None or len(raw) == 0:
+                raise RuntimeError(f"no data for {instrument} ({yh})")
+            # Flatten possible multi-index columns from yfinance.
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+            df = raw.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]]
+            df.index.name = "date"
         try:
             df.to_parquet(cache)
         except Exception:
