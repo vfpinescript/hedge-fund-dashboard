@@ -109,7 +109,7 @@ def api_strategy_library():
 @app.route("/api/strategy_matrix")
 def api_strategy_matrix():
     try:
-        return jsonify(compute.strategy_matrix())
+        return jsonify(compute.matrix_status())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -117,7 +117,7 @@ def api_strategy_matrix():
 @app.route("/api/forward_test")
 def api_forward_test():
     try:
-        return jsonify(compute.forward_test())
+        return jsonify(compute.forward_status())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -226,9 +226,15 @@ function matrixDisp(cell, metric){
 }
 async function loadMatrix(){
   const body=document.getElementById("matrixBody");
-  try{ MATRIX=await (await fetch("/api/strategy_matrix")).json(); }
+  let d;
+  try{ d=await (await fetch("/api/strategy_matrix")).json(); }
   catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
-  if(MATRIX.error){ body.innerHTML=`<div class="loading">${MATRIX.error}</div>`; return; }
+  if(d && d.computing){
+    body.innerHTML=`<div class="loading">Computing the full grid — every strategy on all ${d.assets_total||""} assets plus the pairs (~2,400 backtests). It runs once then caches; this can take a few minutes. Auto-refreshing…</div>`;
+    setTimeout(loadMatrix, 12000); return;
+  }
+  if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  MATRIX=d;
   document.getElementById("matrixMetric").onchange=renderMatrix;
   renderMatrix();
 }
@@ -262,9 +268,15 @@ function renderMatrix(){
 let FWD=null, FWD_SORT="sharpe";
 async function loadForward(){
   const body=document.getElementById("forwardBody");
-  try{ FWD=await (await fetch("/api/forward_test")).json(); }
+  let d;
+  try{ d=await (await fetch("/api/forward_test")).json(); }
   catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
-  if(FWD.error){ body.innerHTML=`<div class="loading">${FWD.error}</div>`; return; }
+  if(d && d.computing){
+    body.innerHTML=`<div class="loading">Computing out-of-sample performance across the full universe plus pairs (~2,400 combinations). It runs once then caches; this can take a few minutes. Auto-refreshing…</div>`;
+    setTimeout(loadForward, 12000); return;
+  }
+  if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  FWD=d;
   renderForward();
 }
 function renderForward(){

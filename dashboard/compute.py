@@ -36,6 +36,48 @@ from quant.agents.vol_regime import VolRegimeAgent
 
 _CACHE: dict = {}
 
+# --- background warming for the heavy full-universe grids ---------------------
+import threading as _threading
+
+_WARM_LOCK = _threading.Lock()
+_WARMING: set = set()
+
+
+def _ensure_warm(key, fn):
+    """Compute `fn` in a background thread if it is not cached and not already
+    running, so the request thread never blocks on the multi-minute grids."""
+    if key in _CACHE:
+        return
+    with _WARM_LOCK:
+        if key in _WARMING:
+            return
+        _WARMING.add(key)
+
+    def _run():
+        try:
+            fn()
+        except Exception:
+            pass
+        finally:
+            _WARMING.discard(key)
+
+    _threading.Thread(target=_run, daemon=True).start()
+
+
+def matrix_status():
+    """Cached matrix, or {'computing': True} while the background warm runs."""
+    if "matrix" in _CACHE:
+        return _CACHE["matrix"]
+    _ensure_warm("matrix", strategy_matrix)
+    return {"computing": True, "assets_total": len(MATRIX_ASSETS)}
+
+
+def forward_status():
+    if "forward" in _CACHE:
+        return _CACHE["forward"]
+    _ensure_warm("forward", forward_test)
+    return {"computing": True}
+
 
 def _safe_sharpe(r, ann=np.sqrt(252), floor=1e-7, cap=50.0):
     """Sharpe with degenerate-series protection: a near-constant return series
@@ -773,29 +815,23 @@ def analytics(strategy_id, instrument, horizon=252, n_paths=2000):
             "mc": mc, "dist": dist, "rolling_sharpe": rolling_sharpe}
 
 
-# assets shown down the side of the Strategy Matrix
-# A curated, representative cross-section spanning every asset class for the
-# eager matrix / forward grid (every strategy is run on each, so this stays
-# bounded). The full, much larger universe lives in INSTRUMENT_GROUPS and is
-# browsable one at a time on the Strategies page.
-MATRIX_ASSETS = [
-    # FX
-    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDMXN",
-    # Commodities
-    "XAUUSD", "XAGUSD", "USOIL", "NATGAS", "HG1!", "COFFEE",
-    # Stocks
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "JPM", "UNH", "LLY", "XOM",
-    # Bonds & fixed income
-    "TLT", "IEF", "LQD", "HYG", "TIP",
-    # Indices
-    "SPX", "NDX", "DJIA", "RUSSELL", "DAX", "NIKKEI",
-    # ETFs
-    "SPY", "QQQ", "XLK", "XLF", "XLE", "SMH", "GLD", "EEM",
-    # Derivatives
-    "TQQQ", "SOXL", "ES1!", "ZN1!",
-    # Crypto
-    "BTCUSD", "ETHUSD", "SOLUSD",
-]
+# Assets shown down the side of the Strategy Matrix / Forward Test. These now
+# mirror the FULL browsable universe on the Backtest page, so every strategy x
+# asset you can open there also appears ranked in Forward Test and colour-coded
+# in the Matrix. The grid is large (~214 assets x 11 strategies), so the first
+# computation is slow and then cached; it is warmed in the background on startup.
+def _full_matrix_assets():
+    from quant.research.strategy_library import INSTRUMENT_GROUPS
+    seen, out = set(), []
+    for syms in INSTRUMENT_GROUPS.values():
+        for s in syms:
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+    return out
+
+
+MATRIX_ASSETS = _full_matrix_assets()
 
 
 # out-of-sample tracking start: performance from here forward is the honest test
@@ -810,28 +846,33 @@ def forward_test(start=FORWARD_START):
     if "forward" in _CACHE:
         return _CACHE["forward"]
     from quant.research.strategy_library import _strategy_returns, STRATEGIES
-    rows = []
+    # every (strategy, asset) browsable on the Backtest page, pairs included
+    combos = []
     for sid, spec in STRATEGIES.items():
-        if spec.get("mode") == "pairs":          # pairs need a pair, not a single ticker
-            continue
-        for asset in MATRIX_ASSETS:
-            try:
-                strat, _ = _strategy_returns(spec, asset)
-                fwd = strat[strat.index >= start].dropna()
-                if len(fwd) < 10:
-                    continue
-                eq = (1 + fwd).cumprod()
-                tot = (eq.iloc[-1] - 1) * 100
-                sh = _safe_sharpe(fwd)
-                so = _safe_sortino(fwd)
-                mdd = float((eq / eq.cummax() - 1).min()) * 100
-                rows.append({"strategy": spec["name"], "strategy_id": sid, "asset": asset,
-                             "days": len(fwd), "return": round(tot, 1),
-                             "sharpe": sh, "sortino": so,
-                             "max_dd": round(mdd, 1),
-                             "rr": round(tot / abs(mdd), 2) if mdd else None})
-            except Exception:
+        if spec.get("mode") == "pairs":
+            from quant.research.pairs import PAIRS
+            combos += [(sid, spec, f"{a}/{b}") for a, b in PAIRS]
+        else:
+            combos += [(sid, spec, asset) for asset in MATRIX_ASSETS]
+    rows = []
+    for sid, spec, asset in combos:
+        try:
+            strat, _ = _strategy_returns(spec, asset)
+            fwd = strat[strat.index >= start].dropna()
+            if len(fwd) < 10:
                 continue
+            eq = (1 + fwd).cumprod()
+            tot = (eq.iloc[-1] - 1) * 100
+            sh = _safe_sharpe(fwd)
+            so = _safe_sortino(fwd)
+            mdd = float((eq / eq.cummax() - 1).min()) * 100
+            rows.append({"strategy": spec["name"], "strategy_id": sid, "asset": asset,
+                         "days": len(fwd), "return": round(tot, 1),
+                         "sharpe": sh, "sortino": so,
+                         "max_dd": round(mdd, 1),
+                         "rr": round(tot / abs(mdd), 2) if mdd else None})
+        except Exception:
+            continue
     rows.sort(key=lambda x: -(x["sharpe"] if x["sharpe"] is not None else -1e9))
     out = {"start": start, "n": len(rows),
            "as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d"), "rows": rows}
@@ -877,29 +918,42 @@ def strategy_matrix():
     if "matrix" in _CACHE:
         return _CACHE["matrix"]
     from quant.research.strategy_library import run_strategy, STRATEGIES
-    strat_meta = [{"id": k, "name": v["name"], "family": v["family"]}
-                  for k, v in STRATEGIES.items() if v.get("mode") != "pairs"]
+    from quant.research.pairs import PAIRS
+    single = [{"id": k, "name": v["name"], "family": v["family"]}
+              for k, v in STRATEGIES.items() if v.get("mode") != "pairs"]
+    pairs_meta = [{"id": k, "name": v["name"], "family": v["family"]}
+                  for k, v in STRATEGIES.items() if v.get("mode") == "pairs"]
+    strat_meta = single + pairs_meta           # all columns
+
+    def _cell(sid, asset):
+        try:
+            r = run_strategy(sid, asset)
+            if "error" in r:
+                return None
+            m = r["metrics"]
+            return {"cagr": round(m.get("cagr", 0) * 100, 1),
+                    "total_return": round(m.get("total_return", 0) * 100, 1),
+                    "sharpe": round(m.get("sharpe", 0), 2),
+                    "sortino": round(m.get("sortino", 0), 2),
+                    "dsr": r.get("dsr"), "verdict": r.get("dsr_verdict")}
+        except Exception:
+            return None
+
     rows = []
-    for asset in MATRIX_ASSETS:
-        cells = {}
-        for s in strat_meta:
-            try:
-                r = run_strategy(s["id"], asset)
-                if "error" in r:
-                    cells[s["id"]] = None
-                else:
-                    m = r["metrics"]
-                    cells[s["id"]] = {
-                        "cagr": round(m.get("cagr", 0) * 100, 1),
-                        "total_return": round(m.get("total_return", 0) * 100, 1),
-                        "sharpe": round(m.get("sharpe", 0), 2),
-                        "sortino": round(m.get("sortino", 0), 2),
-                        "dsr": r.get("dsr"), "verdict": r.get("dsr_verdict"),
-                    }
-            except Exception:
-                cells[s["id"]] = None
+    for asset in MATRIX_ASSETS:                # single-ticker rows
+        cells = {s["id"]: _cell(s["id"], asset) for s in single}
+        for s in pairs_meta:
+            cells[s["id"]] = None              # pairs don't run on a single ticker
         rows.append({"asset": asset, "cells": cells})
-    out = {"strategies": strat_meta, "assets": MATRIX_ASSETS, "rows": rows}
+    for a, b in PAIRS:                         # pair rows
+        pair = f"{a}/{b}"
+        cells = {s["id"]: None for s in single}
+        for s in pairs_meta:
+            cells[s["id"]] = _cell(s["id"], pair)
+        rows.append({"asset": pair, "cells": cells, "is_pair": True})
+
+    assets = list(MATRIX_ASSETS) + [f"{a}/{b}" for a, b in PAIRS]
+    out = {"strategies": strat_meta, "assets": assets, "rows": rows}
     _CACHE["matrix"] = out
     return out
 
