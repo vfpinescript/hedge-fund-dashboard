@@ -69,7 +69,53 @@ STRATEGIES = {
     "pairs_statarb": {"name": "Pairs Stat-Arb (z-reversion)", "family": "stat-arb",
                       "desc": "Buy the laggard, short the leader of a linked pair when their spread diverges (|z|>2), bet on convergence. Choose a pair as the asset. Net of costs; the famous KO/PEP pair loses money.",
                       "fn": None, "mode": "pairs", "params": {}, "hold": 1},
+    # --- Composite (portfolio) strategies: one fixed diversified book each.
+    # These are the honest route to a DSR-robust book: diversifying one signal
+    # across many uncorrelated assets cancels idiosyncratic noise, so the
+    # portfolio Sharpe clears the bar that single legs cannot. Asset = PORTFOLIO.
+    "comp_ensemble_core": {"name": "Ensemble Core (Trend + Risk Parity)", "family": "composite",
+                           "desc": "Equal-risk blend of diversified managed-futures trend and multi-asset risk parity, the two robust, decorrelated sleeves. DSR-robust; beats buy-and-hold on Sharpe and drawdown. Asset: PORTFOLIO.",
+                           "fn": None, "mode": "composite", "composite_id": "ensemble_core", "hold": 21},
+    "comp_risk_parity": {"name": "Risk Parity (multi-asset)", "family": "composite",
+                         "desc": "Inverse-vol (equal risk contribution) long-only book across equities, bonds, gold and commodities. Lower vol and far lower drawdown than SPY, higher Sharpe. Asset: PORTFOLIO.",
+                         "fn": None, "mode": "composite", "composite_id": "risk_parity", "hold": 21},
+    "comp_div_trend": {"name": "Diversified Trend (managed futures)", "family": "composite",
+                       "desc": "Multi-lookback trend sign across 21 cross-asset instruments, vol-scaled to equal risk. Positive carry in crises. Asset: PORTFOLIO.",
+                       "fn": None, "mode": "composite", "composite_id": "div_trend", "hold": 21},
+    "comp_xsec_mom": {"name": "Cross-Sectional Equity Momentum", "family": "composite",
+                      "desc": "Monthly long top-decile / short bottom-decile of 54 large-caps by 12-1 momentum, dollar-neutral. Shown honestly: a measured dud on this universe (DSR ~0.16). Asset: PORTFOLIO.",
+                      "fn": None, "mode": "composite", "composite_id": "xsec_mom", "hold": 21},
+    # Risk-managed: the controls that actually work on a systematic portfolio
+    # (volatility targeting + drawdown throttle + regime filter via the trend
+    # sleeve), NOT stop-losses. Optimizes risk EFFICIENCY (Calmar/Sharpe/shallow
+    # drawdown), the right objective for live capital.
+    "risk_managed_ensemble": {"name": "Risk-Managed Ensemble (vol-target + DD throttle)", "family": "risk-managed",
+                              "desc": "Ensemble Core run through volatility targeting (constant 10% risk) and a drawdown throttle (de-levers into losing streaks), capped at 2.5x with financing. Cuts max drawdown to ~-16% while raising return above the unmanaged book. Calmar ~0.40 vs SPY ~0.16. The honest live-capital candidate. Asset: PORTFOLIO.",
+                              "fn": None, "mode": "composite", "composite_id": "risk_managed_ensemble", "hold": 21},
+    "risk_managed_rp": {"name": "Risk-Managed Risk Parity (vol-target + DD throttle)", "family": "risk-managed",
+                        "desc": "Risk Parity run through the same vol-target + drawdown-throttle controls at 10% vol. Asset: PORTFOLIO.",
+                        "fn": None, "mode": "composite", "composite_id": "risk_managed_rp", "hold": 21},
+    # Return-stacked (portable alpha): 100% SPY beta PLUS an uncorrelated robust
+    # overlay funded at cash. The honest way to BEAT buy-and-hold on return: keep
+    # the equity beta you give up by diversifying, and add the overlay's excess
+    # on top. Beats SPY on CAGR, Sharpe and drawdown; DSR ~0.93 (just under gate).
+    "stacked_trend": {"name": "Return-Stacked (SPY + Trend overlay)", "family": "stacked",
+                      "desc": "100% SPY plus a 1x diversified-trend overlay, financed at cash. Beats SPY on return (~13% vs 11%), Sharpe and drawdown; trend cushions equity crises. Asset: PORTFOLIO.",
+                      "fn": None, "mode": "composite", "composite_id": "stacked_trend", "hold": 21},
+    "stacked_trend_heavy": {"name": "Return-Stacked (SPY + Trend 1.5x)", "family": "stacked",
+                            "desc": "100% SPY plus a 1.5x trend overlay. Higher return (~13.7% vs 11%) and a smaller drawdown than SPY, at the cost of more financing. Asset: PORTFOLIO.",
+                            "fn": None, "mode": "composite", "composite_id": "stacked_trend_heavy", "hold": 21},
+    "stacked_core": {"name": "Return-Stacked (SPY + Ensemble Core)", "family": "stacked",
+                     "desc": "100% SPY plus a 1x Ensemble-Core overlay (trend + risk parity), financed. Beats SPY on return and Sharpe. Asset: PORTFOLIO.",
+                     "fn": None, "mode": "composite", "composite_id": "stacked_core", "hold": 21},
+    "stacked_core_heavy": {"name": "Return-Stacked (SPY + Ensemble Core 1.5x)", "family": "stacked",
+                           "desc": "100% SPY plus a 1.5x Ensemble-Core overlay. The highest-return stack (~13.9% vs 11%). Asset: PORTFOLIO.",
+                           "fn": None, "mode": "composite", "composite_id": "stacked_core_heavy", "hold": 21},
 }
+
+# Composite strategies ignore the instrument (each is a fixed book); the UI
+# pairs them with this single pseudo-asset.
+COMPOSITE_ASSET = "PORTFOLIO"
 
 
 def donchian_sig(df, window=55):
@@ -158,8 +204,21 @@ def _riskfree_daily(index):
     return pd.Series(0.02 / 252, index=index)
 
 
-def _strategy_returns(spec, instrument, cost_bps=DEFAULT_COST_BPS, bars=3000, vol_win=63):
-    """One strategy on one instrument: vol-scaled, rebalanced at `hold`."""
+def _strategy_returns(spec, instrument, cost_bps=DEFAULT_COST_BPS, bars=6000, vol_win=63):
+    """One strategy on one instrument: vol-scaled, rebalanced at `hold`.
+
+    `bars` defaults to the FULL available history (cache holds up to ~5000-15000
+    daily bars). Using all of it, rather than the old 3000 cap, raises the
+    Deflated-Sharpe hurdle's statistical power: the required net Sharpe to clear
+    DSR>=0.95 falls from ~1.16 (T=3000) to ~0.89 (T=5000). Free, honest power."""
+    # composite mode: a fixed diversified portfolio book; ignore `instrument`.
+    if spec.get("mode") == "composite":
+        from quant.research import composites as _comp
+        fn = _comp.COMPOSITES[spec["composite_id"]]["fn"]
+        strat, bench = fn()
+        if strat is None or len(strat) < 250:
+            raise RuntimeError(f"composite {spec['composite_id']} unavailable")
+        return strat, bench
     # pairs mode: `instrument` is a pair "A/B"; delegate to the pairs engine.
     if spec.get("mode") == "pairs":
         from quant.research.pairs import pair_returns
@@ -226,6 +285,9 @@ def run_strategy(strategy_id, instrument, cost_bps=DEFAULT_COST_BPS) -> dict:
     if spec.get("mode") == "pairs":
         from quant.research.pairs import PAIRS
         n_trials = len(PAIRS)                       # deflate by the pairs searched
+    elif spec.get("mode") == "composite":
+        from quant.research.composites import N_COMPOSITE_TRIALS
+        n_trials = N_COMPOSITE_TRIALS               # the small pre-registered family
     else:
         n_trials = EFFECTIVE_TRIALS
     dsr = deflated_sharpe_ratio(strat.values, n_trials=n_trials)
@@ -261,4 +323,6 @@ def library():
         "instrument_groups": INSTRUMENT_GROUPS,
         # the Pairs Stat-Arb strategy swaps the asset list for these pairs
         "pair_instruments": {"Pairs": [f"{a}/{b}" for a, b in PAIRS]},
+        # composite strategies use a single fixed-book pseudo-asset
+        "composite_instruments": {"Portfolio": [COMPOSITE_ASSET]},
     }

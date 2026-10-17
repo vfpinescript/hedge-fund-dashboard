@@ -852,6 +852,9 @@ def forward_test(start=FORWARD_START):
         if spec.get("mode") == "pairs":
             from quant.research.pairs import PAIRS
             combos += [(sid, spec, f"{a}/{b}") for a, b in PAIRS]
+        elif spec.get("mode") == "composite":
+            from quant.research.strategy_library import COMPOSITE_ASSET
+            combos += [(sid, spec, COMPOSITE_ASSET)]        # one fixed book
         else:
             combos += [(sid, spec, asset) for asset in MATRIX_ASSETS]
     rows = []
@@ -878,6 +881,13 @@ def forward_test(start=FORWARD_START):
            "as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d"), "rows": rows}
     _CACHE["forward"] = out
     return out
+
+
+def composite_forward_track():
+    """The live, append-only out-of-sample record of the portfolio composites
+    (recorded daily from inception, not recomputed). Honest forward evidence."""
+    from quant.research.forward_tracker import track_summary
+    return track_summary()
 
 
 def forward_series(strategy_id, instrument, start=FORWARD_START):
@@ -917,13 +927,15 @@ def strategy_matrix():
     total return / Sharpe / Sortino / DSR per (asset, strategy). Cached."""
     if "matrix" in _CACHE:
         return _CACHE["matrix"]
-    from quant.research.strategy_library import run_strategy, STRATEGIES
+    from quant.research.strategy_library import run_strategy, STRATEGIES, COMPOSITE_ASSET
     from quant.research.pairs import PAIRS
     single = [{"id": k, "name": v["name"], "family": v["family"]}
-              for k, v in STRATEGIES.items() if v.get("mode") != "pairs"]
+              for k, v in STRATEGIES.items() if v.get("mode") not in ("pairs", "composite")]
+    composite_meta = [{"id": k, "name": v["name"], "family": v["family"]}
+                      for k, v in STRATEGIES.items() if v.get("mode") == "composite"]
     pairs_meta = [{"id": k, "name": v["name"], "family": v["family"]}
                   for k, v in STRATEGIES.items() if v.get("mode") == "pairs"]
-    strat_meta = single + pairs_meta           # all columns
+    strat_meta = single + composite_meta + pairs_meta           # all columns
 
     def _cell(sid, asset):
         try:
@@ -942,17 +954,22 @@ def strategy_matrix():
     rows = []
     for asset in MATRIX_ASSETS:                # single-ticker rows
         cells = {s["id"]: _cell(s["id"], asset) for s in single}
-        for s in pairs_meta:
-            cells[s["id"]] = None              # pairs don't run on a single ticker
+        for s in composite_meta + pairs_meta:
+            cells[s["id"]] = None              # composites/pairs aren't single-ticker
         rows.append({"asset": asset, "cells": cells})
+    # one PORTFOLIO row carrying the composite (diversified book) columns
+    comp_cells = {s["id"]: None for s in single + pairs_meta}
+    for s in composite_meta:
+        comp_cells[s["id"]] = _cell(s["id"], COMPOSITE_ASSET)
+    rows.append({"asset": COMPOSITE_ASSET, "cells": comp_cells, "is_composite": True})
     for a, b in PAIRS:                         # pair rows
         pair = f"{a}/{b}"
-        cells = {s["id"]: None for s in single}
+        cells = {s["id"]: None for s in single + composite_meta}
         for s in pairs_meta:
             cells[s["id"]] = _cell(s["id"], pair)
         rows.append({"asset": pair, "cells": cells, "is_pair": True})
 
-    assets = list(MATRIX_ASSETS) + [f"{a}/{b}" for a, b in PAIRS]
+    assets = list(MATRIX_ASSETS) + [COMPOSITE_ASSET] + [f"{a}/{b}" for a, b in PAIRS]
     out = {"strategies": strat_meta, "assets": assets, "rows": rows}
     _CACHE["matrix"] = out
     return out

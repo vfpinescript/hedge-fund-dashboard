@@ -1,6 +1,7 @@
 .env
 venv/
 data_cache/
+!data_cache/composite_forward_track.json
 __pycache__/
 external/
 node_modules/

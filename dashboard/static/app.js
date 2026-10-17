@@ -41,7 +41,7 @@ const METRICS = [
   ["risk_reward","Risk–Reward Ratio","num",""],["max_win_streak","Max Win Streak","int",""],
   ["time_in_dd","Time in DD","pct",""],["max_loss_streak","Max Losing Streak","int",""],
 ];
-let ASSET_GROUPS={}, PAIR_GROUPS={}, STRAT_MODE={}, CUR_STRAT="reversal_7", CUR_ASSET=null;
+let ASSET_GROUPS={}, PAIR_GROUPS={}, COMPOSITE_GROUPS={}, STRAT_MODE={}, CUR_STRAT="reversal_7", CUR_ASSET=null;
 
 async function loadStrategies(){
   const lib = await (await fetch("/api/strategy_library")).json();
@@ -51,13 +51,15 @@ async function loadStrategies(){
   if([...picker.options].some(o=>o.value===CUR_STRAT)) picker.value=CUR_STRAT; else CUR_STRAT=picker.value;
   ASSET_GROUPS=lib.instrument_groups;
   PAIR_GROUPS=lib.pair_instruments||{};
+  COMPOSITE_GROUPS=lib.composite_instruments||{};
   picker.onchange=()=>{ CUR_STRAT=picker.value; renderAssetList(); };
   renderAssetList();
 }
 
 function renderAssetList(){
-  // Pairs Stat-Arb swaps the asset list for the pair universe (KO/PEP ...).
-  const groups = STRAT_MODE[CUR_STRAT]==="pairs" ? PAIR_GROUPS : ASSET_GROUPS;
+  // Pairs Stat-Arb swaps in the pair universe; composites swap in PORTFOLIO.
+  const mode = STRAT_MODE[CUR_STRAT];
+  const groups = mode==="pairs" ? PAIR_GROUPS : mode==="composite" ? COMPOSITE_GROUPS : ASSET_GROUPS;
   const list=document.getElementById("stratList");
   let html="";
   for(const [g,syms] of Object.entries(groups)){
@@ -264,9 +266,40 @@ function renderMatrix(){
   body.querySelectorAll("td.cell[data-strat]").forEach(td=>td.onclick=()=>openStrategy(td.dataset.strat, td.dataset.asset));
 }
 
+/* ---------- composite forward track (append-only live record) ---------- */
+async function loadCompositeTrack(){
+  const box=document.getElementById("compositeTrack");
+  if(!box) return;
+  let d;
+  try{ d=await (await fetch("/api/forward_track")).json(); }
+  catch(e){ return; }
+  if(!d || d.error || !d.rows) return;
+  const col=v=>v==null?"var(--mut)":v>=0?"var(--pos)":"var(--neg)";
+  const maxDays=Math.max(0,...d.rows.map(r=>r.days||0));
+  const rows=d.rows.map(r=>`<tr>
+      <td class="rowhead" style="min-width:260px">${r.name}</td>
+      <td class="cell num" style="color:${col(r.return)}">${r.return==null?"–":r.return+"%"}</td>
+      <td class="cell num" style="color:${col(r.sharpe)}">${r.sharpe==null?"–":r.sharpe}</td>
+      <td class="cell num" style="color:var(--neg)">${r.max_dd==null?"–":r.max_dd+"%"}</td>
+      <td class="cell num muted">${r.days}</td></tr>`).join("");
+  box.innerHTML=`<div class="card" style="padding:16px 18px;margin-bottom:16px;border:1px solid var(--gold)">
+    <div style="display:flex;gap:28px;align-items:baseline;flex-wrap:wrap;margin-bottom:${maxDays?'10px':'0'}">
+      <div><h3 style="margin:0">Portfolio Composites · Live Forward Record</h3>
+        <div class="muted" style="font-size:12px">Append-only: each day's return is recorded once and frozen, never recomputed. The only true out-of-sample evidence for these books.</div></div>
+      <div><div class="ml">Inception</div><div class="mv" style="font-size:16px">${d.inception}</div></div>
+      <div><div class="ml">Days recorded</div><div class="mv" style="font-size:16px">${maxDays}</div></div>
+    </div>
+    ${maxDays? `<div class="matrix-wrap"><table class="mtx" style="font-size:12.5px"><thead><tr>
+      <th class="rowhead corner">Composite</th><th>Return %</th><th>Sharpe</th><th>Max DD %</th><th>Days</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+      : `<div class="muted" style="font-size:13px;padding:4px 0">Recording begins at the next market close. These composites were frozen on ${d.inception}; genuine out-of-sample results accrue from that date, so there is nothing to show yet. Backtest metrics are on the Backtest and Strategy Matrix tabs.</div>`}
+    </div>`;
+}
+
 /* ---------- forward test ---------- */
 let FWD=null, FWD_SORT="sharpe";
 async function loadForward(){
+  loadCompositeTrack();
   const body=document.getElementById("forwardBody");
   let d;
   try{ d=await (await fetch("/api/forward_test")).json(); }

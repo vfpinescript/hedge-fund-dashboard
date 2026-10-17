@@ -122,6 +122,14 @@ def api_forward_test():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/forward_track")
+def api_forward_track():
+    try:
+        return jsonify(compute.composite_forward_track())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/forward_series")
 def api_forward_series():
     try:

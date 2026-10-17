@@ -103,30 +103,40 @@ def garch_outliers(returns, kappa=4.0, method="garch"):
 
 
 def clean_series(close, kappa=8.0, method="ewma"):
-    """Winsorize genuine bad ticks in a PRICE series.
+    """Repair isolated bad ticks in a PRICE series by neighbour interpolation.
 
-    A log-return beyond `kappa` conditional sigmas (default 8 — a ~1-in-10^15
-    event under normality, i.e. almost surely corrupt data, not signal) is pulled
-    back to the kappa-sigma bound. Deliberately conservative so it only removes
-    data errors and leaves real moves (including crashes) intact. Returns the
-    cleaned price series plus the count of points touched.
+    A single corrupt print (e.g. SPY 738 -> 420 -> 738) is an ISOLATED spike:
+    the price jumps far from BOTH its neighbours and reverts. We detect such a
+    point by its deviation from the mean of its two neighbours in log space, and
+    when that deviation exceeds `kappa` conditional sigmas we replace the point
+    with the neighbour mean. Deliberately conservative (kappa=8 ~ a 1-in-10^15
+    event under normality) so it only removes data errors and leaves real moves,
+    including crashes and trends, intact.
+
+    This replaces the earlier return-winsorizing version, which had a serious
+    bug: a bad down-tick inflated the EWMA vol estimate so the mirror-image
+    recovery tick slipped under the bound; only the down-move was capped and the
+    recovery compounded, permanently DOUBLING every subsequent price. Repairing
+    the single point instead leaves both neighbours' returns intact, so the level
+    can never shift. Returns the cleaned price series plus the count of points
+    touched.
     """
     s = pd.Series(close).astype(float)
     if len(s) < 40:
         return s, 0
-    logret = np.log(s).diff()
+    logp = np.log(s)
+    logret = logp.diff()
     sig = conditional_vol(logret, method=method)
+    neigh = 0.5 * (logp.shift(1) + logp.shift(-1))     # local linear interpolation
+    dev = (logp - neigh).abs()                         # isolated-spike deviation
     bound = kappa * sig
-    bad = (logret.abs() > bound) & bound.notna() & (bound > 0)
+    bad = ((dev > bound) & bound.notna() & (bound > 0)
+           & logp.shift(1).notna() & logp.shift(-1).notna())   # interior points only
     if not bad.any():
         return s, 0
-    capped = logret.copy()
-    capped[bad] = np.sign(logret[bad]) * bound[bad]
-    # rebuild prices from the first observation with capped returns
-    new_log = np.log(s).copy()
-    base = np.log(s.iloc[0])
-    new_log.iloc[1:] = base + capped.iloc[1:].fillna(0).cumsum()
-    return np.exp(new_log), int(bad.sum())
+    repaired = logp.copy()
+    repaired[bad] = neigh[bad]
+    return np.exp(repaired), int(bad.sum())
 
 
 # --------------------------------------------------------------------------- #
