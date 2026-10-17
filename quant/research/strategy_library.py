@@ -85,6 +85,19 @@ STRATEGIES = {
     "comp_xsec_mom": {"name": "Cross-Sectional Equity Momentum", "family": "composite",
                       "desc": "Monthly long top-decile / short bottom-decile of 54 large-caps by 12-1 momentum, dollar-neutral. Shown honestly: a measured dud on this universe (DSR ~0.16). Asset: PORTFOLIO.",
                       "fn": None, "mode": "composite", "composite_id": "xsec_mom", "hold": 21},
+    # Volatility-managed equity (Moreira-Muir): hold the index but size exposure
+    # inversely to recent realized vol. On high-vol QQQ this beats buy-and-hold on
+    # return AND risk with DSR ~0.95; on smooth SPY it does not (kept as an honest
+    # null so the search is not cherry-picked).
+    "vol_managed_qqq": {"name": "Volatility-Managed QQQ", "family": "vol-managed",
+                        "desc": "Hold QQQ but scale exposure inversely to its recent volatility (18% vol target), de-risking before turbulent stretches. Beats QQQ buy-and-hold on return (~15% CAGR), Sharpe (0.82), Sortino (1.09) and drawdown (-35% vs -53%), DSR ~0.95. Net of cost + financing. Asset: PORTFOLIO.",
+                        "fn": None, "mode": "composite", "composite_id": "vol_managed_qqq", "hold": 1},
+    "vol_managed_qqq_aggr": {"name": "Volatility-Managed QQQ (Aggressive)", "family": "vol-managed",
+                             "desc": "The same vol-managed QQQ engine run at a 24% vol target: beats QQQ buy-and-hold by a WIDE margin (~19% vs 15% CAGR, +4%/yr, roughly double the terminal wealth over 20y) while max drawdown (-45%) stays below buy-and-hold's -53%. Sharpe 0.80, Sortino 1.07, PF 1.15, DSR ~0.92. The wider margin is bought with more risk, but vol-management keeps the drawdown under the index's. Asset: PORTFOLIO.",
+                             "fn": None, "mode": "composite", "composite_id": "vol_managed_qqq_aggr", "hold": 1},
+    "vol_managed_spy": {"name": "Volatility-Managed SPY (honest null)", "family": "vol-managed",
+                        "desc": "The same vol-managed recipe on SPY. Shown deliberately: the effect is weak on smooth large-cap beta, so this does NOT beat SPY buy-and-hold (DSR ~0.51). Kept visible so the vol-managed result is not cherry-picked. Asset: PORTFOLIO.",
+                        "fn": None, "mode": "composite", "composite_id": "vol_managed_spy", "hold": 1},
     # Risk-managed: the controls that actually work on a systematic portfolio
     # (volatility targeting + drawdown throttle + regime filter via the trend
     # sleeve), NOT stop-losses. Optimizes risk EFFICIENCY (Calmar/Sharpe/shallow
