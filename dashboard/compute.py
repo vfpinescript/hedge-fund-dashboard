@@ -12,6 +12,15 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import warnings
+
+# The scan grids compute Sharpe/std on many near-constant or NaN return series,
+# which fires pandas/numpy RuntimeWarnings on every cell. In the server these go
+# to the captured gunicorn log, and formatting + writing thousands of them turns
+# an ~11s grid into a ~minute one. They are expected and harmless here, so
+# silence them and let numpy return NaN quietly.
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+np.seterr(all="ignore")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -41,6 +50,10 @@ import threading as _threading
 
 _WARM_LOCK = _threading.Lock()
 _WARMING: set = set()
+_WARM_ERR: dict = {}
+# Serialize grid warms: running matrix and forward concurrently thrashes the GIL
+# and inflates a ~15s job to minutes. One at a time keeps each fast.
+_WARM_EXEC = _threading.Lock()
 
 
 def _ensure_warm(key, fn):
@@ -55,28 +68,40 @@ def _ensure_warm(key, fn):
 
     def _run():
         try:
-            fn()
-        except Exception:
-            pass
+            with _WARM_EXEC:          # serialize: one grid warm at a time
+                fn()
+            _WARM_ERR.pop(key, None)
+        except Exception as e:
+            import traceback
+            _WARM_ERR[key] = str(e)[:300]
+            traceback.print_exc()
         finally:
             _WARMING.discard(key)
 
     _threading.Thread(target=_run, daemon=True).start()
 
 
+def _warm_status(key, fn, extra=None):
+    if key in _CACHE:
+        return _CACHE[key]
+    _ensure_warm(key, fn)
+    out = {"computing": True}
+    if key in _WARM_ERR:
+        out = {"computing": False, "error": _WARM_ERR[key]}
+    if extra:
+        out.update(extra)
+    return out
+
+
 def matrix_status():
-    """Cached matrix, or {'computing': True} while the background warm runs."""
-    if "matrix" in _CACHE:
-        return _CACHE["matrix"]
-    _ensure_warm("matrix", strategy_matrix)
-    return {"computing": True, "assets_total": len(MATRIX_ASSETS)}
+    """Cached matrix, or {'computing': True} while the background warm runs,
+    or {'error': ...} if the warm failed."""
+    return _warm_status("matrix", strategy_matrix,
+                        extra={"assets_total": len(MATRIX_ASSETS)})
 
 
 def forward_status():
-    if "forward" in _CACHE:
-        return _CACHE["forward"]
-    _ensure_warm("forward", forward_test)
-    return {"computing": True}
+    return _warm_status("forward", forward_test)
 
 
 def _safe_sharpe(r, ann=np.sqrt(252), floor=1e-7, cap=50.0):
@@ -820,14 +845,36 @@ def analytics(strategy_id, instrument, horizon=252, n_paths=2000):
 # asset you can open there also appears ranked in Forward Test and colour-coded
 # in the Matrix. The grid is large (~214 assets x 11 strategies), so the first
 # computation is slow and then cached; it is warmed in the background on startup.
+# Curated, liquid, non-delisted universe for the scan grids (Strategy Matrix +
+# Forward Test). The full 214-instrument menu was too heavy to warm (and full of
+# delisted tickers that stalled on slow data retries), so the grids never
+# finished and showed a perpetual "computing". A focused liquid set keeps the
+# scan fast and the picker's full universe is unaffected (Backtest still lists
+# every instrument). MATRIX_BARS caps the lookback: a scan needs ~10y, not 24.
+MATRIX_BARS = 2500
+
+_MATRIX_UNIVERSE = [
+    # mega/large-cap equities
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "AMD",
+    "JPM", "BAC", "GS", "V", "MA", "UNH", "JNJ", "LLY", "PFE",
+    "WMT", "COST", "HD", "MCD", "KO", "PEP", "PG", "DIS",
+    "XOM", "CVX", "CAT", "BA", "GE", "LMT", "T", "VZ", "IBM",
+    # liquid ETFs across asset classes
+    "SPY", "QQQ", "IWM", "DIA", "EFA", "EEM", "SMH", "XLK", "XLF", "XLE",
+    "XLV", "XLY", "XLP", "GLD", "SLV", "USO", "DBC", "TLT", "IEF", "LQD", "HYG",
+    # FX / commodities / crypto representatives
+    "EURUSD", "USDJPY", "GBPUSD", "AUDUSD", "XAUUSD", "XAGUSD",
+    "BTCUSD", "ETHUSD", "SOLUSD",
+]
+
+
 def _full_matrix_assets():
-    from quant.research.strategy_library import INSTRUMENT_GROUPS
+    """Curated liquid scan universe (see MATRIX_BARS note). De-duplicated."""
     seen, out = set(), []
-    for syms in INSTRUMENT_GROUPS.values():
-        for s in syms:
-            if s not in seen:
-                seen.add(s)
-                out.append(s)
+    for s in _MATRIX_UNIVERSE:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
     return out
 
 
@@ -849,18 +896,13 @@ def forward_test(start=FORWARD_START):
     # every (strategy, asset) browsable on the Backtest page, pairs included
     combos = []
     for sid, spec in STRATEGIES.items():
-        if spec.get("mode") == "pairs":
-            from quant.research.pairs import PAIRS
-            combos += [(sid, spec, f"{a}/{b}") for a, b in PAIRS]
-        elif spec.get("mode") == "composite":
-            from quant.research.strategy_library import COMPOSITE_ASSET
-            combos += [(sid, spec, COMPOSITE_ASSET)]        # one fixed book
-        else:
-            combos += [(sid, spec, asset) for asset in MATRIX_ASSETS]
+        if spec.get("mode") in ("pairs", "composite"):
+            continue        # pairs -> Pairs tab; composites -> Forward Test card
+        combos += [(sid, spec, asset) for asset in MATRIX_ASSETS]
     rows = []
     for sid, spec, asset in combos:
         try:
-            strat, _ = _strategy_returns(spec, asset)
+            strat, _ = _strategy_returns(spec, asset, bars=MATRIX_BARS)
             fwd = strat[strat.index >= start].dropna()
             if len(fwd) < 10:
                 continue
@@ -927,19 +969,19 @@ def strategy_matrix():
     total return / Sharpe / Sortino / DSR per (asset, strategy). Cached."""
     if "matrix" in _CACHE:
         return _CACHE["matrix"]
-    from quant.research.strategy_library import run_strategy, STRATEGIES, COMPOSITE_ASSET
-    from quant.research.pairs import PAIRS
+    from quant.research.strategy_library import run_strategy, STRATEGIES
+    # The scan grid shows SINGLE-asset strategies across the liquid universe.
+    # Composites (portfolio books) live on the Backtest tab + the Forward Test
+    # card; pairs live on the Pairs Trading tab. Both load large/slow/uncached
+    # universes (international + delisted tickers) that stalled the grid warm, so
+    # they are kept off this grid to keep it fast and reliable.
     single = [{"id": k, "name": v["name"], "family": v["family"]}
               for k, v in STRATEGIES.items() if v.get("mode") not in ("pairs", "composite")]
-    composite_meta = [{"id": k, "name": v["name"], "family": v["family"]}
-                      for k, v in STRATEGIES.items() if v.get("mode") == "composite"]
-    pairs_meta = [{"id": k, "name": v["name"], "family": v["family"]}
-                  for k, v in STRATEGIES.items() if v.get("mode") == "pairs"]
-    strat_meta = single + composite_meta + pairs_meta           # all columns
+    strat_meta = single           # all columns
 
     def _cell(sid, asset):
         try:
-            r = run_strategy(sid, asset)
+            r = run_strategy(sid, asset, bars=MATRIX_BARS)
             if "error" in r:
                 return None
             m = r["metrics"]
@@ -954,22 +996,9 @@ def strategy_matrix():
     rows = []
     for asset in MATRIX_ASSETS:                # single-ticker rows
         cells = {s["id"]: _cell(s["id"], asset) for s in single}
-        for s in composite_meta + pairs_meta:
-            cells[s["id"]] = None              # composites/pairs aren't single-ticker
         rows.append({"asset": asset, "cells": cells})
-    # one PORTFOLIO row carrying the composite (diversified book) columns
-    comp_cells = {s["id"]: None for s in single + pairs_meta}
-    for s in composite_meta:
-        comp_cells[s["id"]] = _cell(s["id"], COMPOSITE_ASSET)
-    rows.append({"asset": COMPOSITE_ASSET, "cells": comp_cells, "is_composite": True})
-    for a, b in PAIRS:                         # pair rows
-        pair = f"{a}/{b}"
-        cells = {s["id"]: None for s in single + composite_meta}
-        for s in pairs_meta:
-            cells[s["id"]] = _cell(s["id"], pair)
-        rows.append({"asset": pair, "cells": cells, "is_pair": True})
 
-    assets = list(MATRIX_ASSETS) + [COMPOSITE_ASSET] + [f"{a}/{b}" for a, b in PAIRS]
+    assets = list(MATRIX_ASSETS)
     out = {"strategies": strat_meta, "assets": assets, "rows": rows}
     _CACHE["matrix"] = out
     return out
@@ -982,3 +1011,17 @@ def kalshi_scan():
     r = KalshiArbitrageAgent(min_edge_cents=0.3).scan(max_markets=1500)
     _CACHE["kalshi"] = r
     return r
+
+
+# Pre-warm the heavy scan grids at server boot so they are ready (or nearly so)
+# by the time the user opens the Strategy Matrix / Forward Test tabs, instead of
+# starting a ~minute compute on the first click. Serialized via _WARM_EXEC.
+def _prewarm_grids():
+    for key, fn in (("matrix", strategy_matrix), ("forward", forward_test)):
+        _ensure_warm(key, fn)
+
+
+try:
+    _prewarm_grids()
+except Exception:
+    pass

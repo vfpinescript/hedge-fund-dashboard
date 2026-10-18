@@ -292,12 +292,12 @@ def _strategy_returns(spec, instrument, cost_bps=DEFAULT_COST_BPS, bars=6000, vo
     return strat.dropna(), ret
 
 
-def run_strategy(strategy_id, instrument, cost_bps=DEFAULT_COST_BPS) -> dict:
+def run_strategy(strategy_id, instrument, cost_bps=DEFAULT_COST_BPS, bars=6000) -> dict:
     spec = STRATEGIES.get(strategy_id)
     if not spec:
         return {"error": f"unknown strategy {strategy_id}"}
     try:
-        strat, ret = _strategy_returns(spec, instrument, cost_bps)
+        strat, ret = _strategy_returns(spec, instrument, cost_bps, bars=bars)
     except Exception as e:
         return {"error": f"could not load {instrument}: {e}"}
     if len(strat) < 250:
