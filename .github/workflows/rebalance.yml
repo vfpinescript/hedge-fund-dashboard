@@ -10,7 +10,12 @@ name: Rebalance paper accounts
 
 on:
   schedule:
-    - cron: "0 15 * * 1-5"   # 15:00 UTC on weekdays = US market hours
+    # Runs in GitHub's cloud, independent of the laptop or the desktop app being
+    # open. Two weekday runs so a delayed/skipped cron can't lose a day: once
+    # mid-session and once near the US close. Reconciliation is idempotent, so a
+    # second run on the same targets places no extra trades.
+    - cron: "0 15 * * 1-5"    # 15:00 UTC, mid US session
+    - cron: "45 19 * * 1-5"   # 19:45 UTC, ~15 min before the US close
   workflow_dispatch:
     inputs:
       dry_run:
@@ -39,6 +44,8 @@ jobs:
       # live book just skips the NFCI brake (graceful no-op).
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+      # Congress-copy desk needs the FMP key for the disclosure feed.
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       # workflow_dispatch -> use the button's choice; scheduled -> repo var DRY_RUN, default "1"
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || vars.DRY_RUN || '1' }}
     steps:
@@ -59,9 +66,13 @@ jobs:
         continue-on-error: true
         run: python -m alpaca.multi_strategy
 
-      - name: Rebalance desks (MA-timing + reversal L/S)
+      - name: Rebalance trend desk (ALPACA2, MA-timing)
         continue-on-error: true
         run: python -m alpaca.desks
+
+      - name: Congress-copy desk (ALPACA3, mirrors disclosed congressional trades)
+        continue-on-error: true
+        run: python -m alpaca.congress_copy
 
       - name: Snapshot accounts
         continue-on-error: true

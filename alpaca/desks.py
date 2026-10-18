@@ -28,11 +28,9 @@ DESKS = {
         "strategy": "ma_timing", "gross": 0.90,
         "assets": ["SPY", "QQQ", "BTC/USD", "ETH/USD"],
     },
-    "reversal": {
-        "key_env": "ALPACA3_KEY_ID", "secret_env": "ALPACA3_SECRET",
-        "strategy": "reversal", "gross": 0.60,
-        "assets": ["SPY", "QQQ", "IWM", "DIA"],
-    },
+    # NOTE: the ALPACA3 account was reassigned to the Congress-copy desk
+    # (alpaca/congress_copy.py) and now trades ONLY disclosed congressional
+    # trades. The old reversal desk is retired so the account stays exclusive.
 }
 
 
