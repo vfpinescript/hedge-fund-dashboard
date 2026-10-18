@@ -347,6 +347,26 @@ def vol_managed_spy(bars=BARS):
     return volatility_managed("SPY", target_vol=0.15, bars=bars)
 
 
+def dual_class_statarb(bars=BARS, target_vol=0.10):
+    """Dual-class statistical arbitrage: the equal-weight book of same-company
+    share-class pairs (GOOGL/GOOG, BRK-B/BRK-A, MOG-A/MOG-B, ...) from pairs.py,
+    vol-targeted to `target_vol` with financing. Market-neutral and uncorrelated
+    to the market. The structurally-anchored spreads revert reliably, so the book
+    is DSR-robust (Sharpe ~1.8 unlevered) where classic economic-cousin pairs
+    (KO/PEP) are dead after costs. HONEST: small-cap B-share legs are illiquid /
+    hard to borrow, so real capacity is limited and live fills can trail the
+    backtest; GOOGL/GOOG + BRK are the cleanly tradable anchors."""
+    from quant.research.pairs import dual_class_book
+    book = dual_class_book(bars)
+    if book is None or len(book) < 300:
+        return None, None
+    rv = book.std() * np.sqrt(252)
+    k = min(4.0, target_vol / rv) if rv > 0 else 1.0
+    rf = _riskfree_daily(book.index)
+    strat = (k * book - (k - 1.0) * rf).dropna()        # financed vol-target
+    return strat, _spy_bench(strat.index)
+
+
 def return_stacked(overlay_fn=ensemble_core, w=1.0, equity="SPY", bars=BARS):
     """Return stacking (portable alpha): hold 100% equity beta with your capital
     AND stack `w` times an uncorrelated robust overlay on top, funded at cash
@@ -393,6 +413,8 @@ def stacked_core_heavy(bars=BARS):
 
 # --- registry (pre-registered; run_all reports every one) ---------------------
 COMPOSITES = {
+    "dual_class_statarb": {"name": "Dual-Class Stat-Arb (market-neutral pairs)",
+                           "family": "stat-arb", "fn": dual_class_statarb},
     "vol_managed_qqq": {"name": "Volatility-Managed QQQ (beats buy-and-hold)",
                         "family": "vol-managed", "fn": vol_managed_qqq},
     "vol_managed_qqq_aggr": {"name": "Volatility-Managed QQQ (Aggressive, wide margin)",

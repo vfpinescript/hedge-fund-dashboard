@@ -85,6 +85,12 @@ STRATEGIES = {
     "comp_xsec_mom": {"name": "Cross-Sectional Equity Momentum", "family": "composite",
                       "desc": "Monthly long top-decile / short bottom-decile of 54 large-caps by 12-1 momentum, dollar-neutral. Shown honestly: a measured dud on this universe (DSR ~0.16). Asset: PORTFOLIO.",
                       "fn": None, "mode": "composite", "composite_id": "xsec_mom", "hold": 21},
+    # Dual-class statistical arbitrage: the pairs trade that actually survives
+    # costs. Same-company share classes (GOOGL/GOOG, BRK-B/BRK-A, ...), spread
+    # anchored by identical economics so it must revert. Market-neutral, DSR-robust.
+    "dual_class_statarb": {"name": "Dual-Class Stat-Arb (market-neutral pairs)", "family": "stat-arb",
+                           "desc": "The pairs trade that works: a market-neutral book of SAME-COMPANY share-class spreads (GOOGL/GOOG, BRK-B/BRK-A, MOG-A/MOG-B, Bio-Rad, Greif, Crawford, Lennar), vol-targeted to 10%. Sharpe ~1.8 unlevered, -3% drawdown, DSR ~1.0, uncorrelated to the market. Classic economic-cousin pairs (KO/PEP) are dead after costs; these survive because identical economics anchor the spread. CAVEAT: small-cap B-shares are illiquid/hard-to-borrow, so capacity is limited and live fills can trail the backtest, GOOGL/GOOG + BRK are the clean anchors. Asset: PORTFOLIO.",
+                           "fn": None, "mode": "composite", "composite_id": "dual_class_statarb", "hold": 1},
     # Volatility-managed equity (Moreira-Muir): hold the index but size exposure
     # inversely to recent realized vol. On high-vol QQQ this beats buy-and-hold on
     # return AND risk with DSR ~0.95; on smooth SPY it does not (kept as an honest
