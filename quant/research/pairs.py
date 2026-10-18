@@ -151,10 +151,30 @@ def _half_life(spread: pd.Series) -> float:
         return float("nan")
 
 
+# fast lookup of the per-pair cost for the structural (dual-class) pairs
+_DUAL_LOOKUP = {(a.upper(), b.upper()): c for a, b, c in DUAL_CLASS}
+
+
 def pair_returns(a: str, b: str, bars: int = 8000):
     """Daily strategy return series and an equal-weight buy&hold benchmark for a
     pair, net of costs. Returns (strat, bench) pandas Series, or (None, None).
-    Shared by the Pairs page and the Pairs-Stat-Arb strategy so both agree."""
+    Shared by the Pairs page and the Pairs-Stat-Arb strategy so both agree.
+
+    For a DUAL-CLASS pair (same company, two share classes) it uses the tighter,
+    structurally-anchored engine (dual_pair_return) and that pair's realistic
+    cost, since those are the pairs that actually work."""
+    dc_cost = _DUAL_LOOKUP.get((a.strip().upper(), b.strip().upper()))
+    if dc_cost is not None:
+        strat = dual_pair_return(a, b, dc_cost, bars=min(bars, 6000))
+        if strat is None:
+            return None, None
+        try:
+            pa = load_ohlcv(a, bars=min(bars, 6000))["close"]
+            pb = load_ohlcv(b, bars=min(bars, 6000))["close"]
+            bench = ((pa.pct_change() + pb.pct_change()) / 2.0).reindex(strat.index)
+        except Exception:
+            bench = pd.Series(0.0, index=strat.index)
+        return strat, bench
     try:
         pa = load_ohlcv(a, bars=bars)["close"]
         pb = load_ohlcv(b, bars=bars)["close"]

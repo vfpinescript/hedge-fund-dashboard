@@ -93,15 +93,62 @@ def _warm_status(key, fn, extra=None):
     return out
 
 
+import subprocess as _subprocess
+import time as _time
+
+_ROOT = Path(__file__).resolve().parents[1]
+_GRID_FILES = {"matrix": "_grid_matrix.json", "forward": "_grid_forward.json"}
+_GRID_PROC: dict = {}
+
+
+def _grid_from_disk(key):
+    """Load a precomputed grid from data_cache if present and <12h old."""
+    p = _ROOT / "data_cache" / _GRID_FILES[key]
+    try:
+        if p.exists() and (_time.time() - p.stat().st_mtime) < 12 * 3600:
+            return json.loads(p.read_text())
+    except Exception:
+        return None
+    return None
+
+
+def _spawn_grid_warm():
+    """Precompute BOTH grids in a clean subprocess (fast there; the web worker
+    process computes them pathologically slowly). No-op if one is running."""
+    proc = _GRID_PROC.get("proc")
+    if proc is not None and proc.poll() is None:
+        return                       # already warming
+    script = _ROOT / "scripts" / "warm_grids.py"
+    try:
+        _GRID_PROC["proc"] = _subprocess.Popen(
+            [sys.executable, str(script)], cwd=str(_ROOT),
+            stdout=_subprocess.DEVNULL, stderr=_subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
+def _grid_status(key, extra=None):
+    if key in _CACHE:
+        return _CACHE[key]
+    disk = _grid_from_disk(key)
+    if disk is not None:
+        _CACHE[key] = disk
+        return disk
+    _spawn_grid_warm()
+    out = {"computing": True}
+    if extra:
+        out.update(extra)
+    return out
+
+
 def matrix_status():
-    """Cached matrix, or {'computing': True} while the background warm runs,
-    or {'error': ...} if the warm failed."""
-    return _warm_status("matrix", strategy_matrix,
-                        extra={"assets_total": len(MATRIX_ASSETS)})
+    """Serve the precomputed matrix from disk, or {'computing': True} while the
+    background subprocess builds it."""
+    return _grid_status("matrix", extra={"assets_total": len(MATRIX_ASSETS)})
 
 
 def forward_status():
-    return _warm_status("forward", forward_test)
+    return _grid_status("forward")
 
 
 def _safe_sharpe(r, ann=np.sqrt(252), floor=1e-7, cap=50.0):
@@ -880,6 +927,11 @@ def _full_matrix_assets():
 
 MATRIX_ASSETS = _full_matrix_assets()
 
+# Liquid, cached dual-class pairs shown in the scan grids (the full pair list was
+# dropped because its international/delisted legs stalled the warm). These four
+# tickers are liquid and cached, so the pairs column stays fast.
+MATRIX_PAIRS = [("GOOGL", "GOOG"), ("BRK-B", "BRK-A")]
+
 
 # out-of-sample tracking start: performance from here forward is the honest test
 FORWARD_START = "2026-07-01"
@@ -896,9 +948,12 @@ def forward_test(start=FORWARD_START):
     # every (strategy, asset) browsable on the Backtest page, pairs included
     combos = []
     for sid, spec in STRATEGIES.items():
-        if spec.get("mode") in ("pairs", "composite"):
-            continue        # pairs -> Pairs tab; composites -> Forward Test card
-        combos += [(sid, spec, asset) for asset in MATRIX_ASSETS]
+        if spec.get("mode") == "composite":
+            continue        # composites tracked on the Forward Test card
+        if spec.get("mode") == "pairs":
+            combos += [(sid, spec, f"{a}/{b}") for a, b in MATRIX_PAIRS]  # liquid only
+        else:
+            combos += [(sid, spec, asset) for asset in MATRIX_ASSETS]
     rows = []
     for sid, spec, asset in combos:
         try:
@@ -977,7 +1032,9 @@ def strategy_matrix():
     # they are kept off this grid to keep it fast and reliable.
     single = [{"id": k, "name": v["name"], "family": v["family"]}
               for k, v in STRATEGIES.items() if v.get("mode") not in ("pairs", "composite")]
-    strat_meta = single           # all columns
+    pairs_meta = [{"id": k, "name": v["name"], "family": v["family"]}
+                  for k, v in STRATEGIES.items() if v.get("mode") == "pairs"]
+    strat_meta = single + pairs_meta           # all columns
 
     def _cell(sid, asset):
         try:
@@ -996,9 +1053,17 @@ def strategy_matrix():
     rows = []
     for asset in MATRIX_ASSETS:                # single-ticker rows
         cells = {s["id"]: _cell(s["id"], asset) for s in single}
+        for s in pairs_meta:
+            cells[s["id"]] = None              # pairs aren't single-ticker
         rows.append({"asset": asset, "cells": cells})
+    for a, b in MATRIX_PAIRS:                  # liquid dual-class pair rows
+        pair = f"{a}/{b}"
+        cells = {s["id"]: None for s in single}
+        for s in pairs_meta:
+            cells[s["id"]] = _cell(s["id"], pair)
+        rows.append({"asset": pair, "cells": cells, "is_pair": True})
 
-    assets = list(MATRIX_ASSETS)
+    assets = list(MATRIX_ASSETS) + [f"{a}/{b}" for a, b in MATRIX_PAIRS]
     out = {"strategies": strat_meta, "assets": assets, "rows": rows}
     _CACHE["matrix"] = out
     return out
@@ -1016,12 +1081,15 @@ def kalshi_scan():
 # Pre-warm the heavy scan grids at server boot so they are ready (or nearly so)
 # by the time the user opens the Strategy Matrix / Forward Test tabs, instead of
 # starting a ~minute compute on the first click. Serialized via _WARM_EXEC.
-def _prewarm_grids():
-    for key, fn in (("matrix", strategy_matrix), ("forward", forward_test)):
-        _ensure_warm(key, fn)
-
-
-try:
-    _prewarm_grids()
-except Exception:
-    pass
+# At server boot, kick off the precompute subprocess (non-blocking) so the grid
+# cache files are built shortly after startup and ready when the tabs are opened.
+# Never runs for a plain `import compute` in a one-off script/test.
+if os.environ.get("DASHBOARD_PREWARM", "1") != "0" and (
+        "gunicorn" in sys.modules
+        or os.environ.get("SERVER_SOFTWARE", "").startswith("gunicorn")
+        or any("gunicorn" in a for a in sys.argv)):
+    if _grid_from_disk("matrix") is None or _grid_from_disk("forward") is None:
+        try:
+            _spawn_grid_warm()
+        except Exception:
+            pass
