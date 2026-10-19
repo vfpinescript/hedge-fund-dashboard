@@ -91,6 +91,13 @@ STRATEGIES = {
     "dual_class_statarb": {"name": "Dual-Class Stat-Arb (market-neutral pairs)", "family": "stat-arb",
                            "desc": "The pairs trade that works: a market-neutral book of SAME-COMPANY share-class spreads (GOOGL/GOOG, BRK-B/BRK-A, MOG-A/MOG-B, Bio-Rad, Greif, Crawford, Lennar), vol-targeted to 10%. Sharpe ~1.8 unlevered, -3% drawdown, DSR ~1.0, uncorrelated to the market. Classic economic-cousin pairs (KO/PEP) are dead after costs; these survive because identical economics anchor the spread. CAVEAT: small-cap B-shares are illiquid/hard-to-borrow, so capacity is limited and live fills can trail the backtest, GOOGL/GOOG + BRK are the clean anchors. Asset: PORTFOLIO.",
                            "fn": None, "mode": "composite", "composite_id": "dual_class_statarb", "hold": 1},
+    # The "60 Minutes / HFT" weekly cross-sectional reversal (long last week's
+    # losers, short last week's winners, sized by the move). Kept as an HONEST
+    # NULL: no edge on accessible large-caps even gross; the real edge needed
+    # ~4500 names + HFT costs and has decayed since ~2010.
+    "xsec_reversal": {"name": "Weekly Cross-Sectional Reversal (60 Min HFT)", "family": "stat-arb",
+                      "desc": "The strategy from the 60 Minutes HFT segment: each week long the prior-week losers and short the prior-week winners, sized by the move, dollar-neutral. Shown honestly: on the ~85 liquid large-caps here it has NO edge even before costs (gross Sharpe ~0.07) and loses net. The real version needed ~4,500 names (reversal is strongest in small, illiquid stocks) and HFT speed/costs, and that edge has largely been arbitraged away since ~2010. Asset: PORTFOLIO.",
+                      "fn": None, "mode": "composite", "composite_id": "xsec_reversal", "hold": 5},
     # Volatility-managed equity (Moreira-Muir): hold the index but size exposure
     # inversely to recent realized vol. On high-vol QQQ this beats buy-and-hold on
     # return AND risk with DSR ~0.95; on smooth SPY it does not (kept as an honest

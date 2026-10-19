@@ -347,6 +347,48 @@ def vol_managed_spy(bars=BARS):
     return volatility_managed("SPY", target_vol=0.15, bars=bars)
 
 
+REVERSAL_UNIVERSE = [
+    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AVGO","AMD","INTC","CRM","ORCL","ADBE","CSCO","QCOM","TXN","NFLX","MU","AMAT","LRCX","INTU",
+    "JPM","BAC","WFC","GS","MS","C","SCHW","USB","PNC","BLK","SPGI","AXP","V","MA","COF",
+    "UNH","JNJ","LLY","PFE","MRK","ABBV","TMO","ABT","BMY","AMGN","GILD","CVS","DHR","ISRG","MDT",
+    "WMT","COST","HD","LOW","MCD","SBUX","PG","KO","PEP","CL","TGT","NKE","DIS","MO",
+    "XOM","CVX","COP","SLB","EOG","MPC","PSX","VLO","OXY",
+    "CAT","DE","HON","GE","LMT","NOC","RTX","UPS","UNP","NSC","BA","MMM","FDX",
+]
+
+
+def xsec_reversal(bars=BARS, lookback=5, hold=5, cost_bps=DEFAULT_COST_BPS):
+    """The '60 Minutes / HFT' weekly cross-sectional short-term reversal: each
+    week go long the prior-week LOSERS and short the prior-week WINNERS, sized by
+    the magnitude of the move, dollar-neutral across the universe.
+
+    HONEST NULL (reported, not hidden): on the ~85 liquid large-caps available
+    here it has essentially NO edge even gross (Sharpe ~0.07) and loses after
+    realistic costs. The real strategy's edge needed ~4,500 names (the reversal is
+    strongest in smaller, less-liquid stocks) and HFT-level costs/speed, and that
+    edge has largely been arbitraged away since the clip's ~2010 era. Market-
+    neutral, so benchmarked against SPY for context."""
+    panel = _load_panel(REVERSAL_UNIVERSE, bars)
+    if panel.empty or panel.shape[1] < 10:
+        return None, None
+    R = panel.fillna(0.0)
+    cumret = (1 + R).rolling(lookback).apply(np.prod, raw=True) - 1
+    w = pd.DataFrame(0.0, index=R.index, columns=R.columns)
+    for dt in R.index[lookback::hold]:
+        r = cumret.loc[dt].dropna()
+        if len(r) < 10:
+            continue
+        sig = -(r - r.mean())                   # long losers / short winners, $-neutral
+        s = sig.abs().sum()
+        if s > 0:
+            w.loc[dt] = (sig / s).reindex(R.columns).fillna(0.0)
+    w = w.replace(0.0, np.nan).ffill().fillna(0.0)
+    gross = (w.shift(1) * R).sum(axis=1)
+    turn = w.diff().abs().sum(axis=1).fillna(0.0)
+    strat = (gross - turn * (cost_bps / 1e4)).dropna()
+    return strat, _spy_bench(strat.index)
+
+
 def dual_class_statarb(bars=BARS, target_vol=0.10):
     """Dual-class statistical arbitrage: the equal-weight book of same-company
     share-class pairs (GOOGL/GOOG, BRK-B/BRK-A, MOG-A/MOG-B, ...) from pairs.py,
@@ -415,6 +457,8 @@ def stacked_core_heavy(bars=BARS):
 COMPOSITES = {
     "dual_class_statarb": {"name": "Dual-Class Stat-Arb (market-neutral pairs)",
                            "family": "stat-arb", "fn": dual_class_statarb},
+    "xsec_reversal": {"name": "Weekly Cross-Sectional Reversal (60 Minutes HFT)",
+                      "family": "stat-arb", "fn": xsec_reversal},
     "vol_managed_qqq": {"name": "Volatility-Managed QQQ (beats buy-and-hold)",
                         "family": "vol-managed", "fn": vol_managed_qqq},
     "vol_managed_qqq_aggr": {"name": "Volatility-Managed QQQ (Aggressive, wide margin)",
