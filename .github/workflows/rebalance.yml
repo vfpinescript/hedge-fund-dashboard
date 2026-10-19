@@ -70,9 +70,12 @@ jobs:
         continue-on-error: true
         run: python -m alpaca.desks
 
-      - name: Congress-copy desk (ALPACA3, mirrors disclosed congressional trades)
+      # ALPACA3 now runs the dual-class stat-arb desk (market-neutral pairs),
+      # replacing the congress-copy desk on that account. congress_copy.py is kept
+      # in the repo so it can be restored to a free account later.
+      - name: Dual-class stat-arb desk (ALPACA3, market-neutral GOOGL/GOOG + GEF)
         continue-on-error: true
-        run: python -m alpaca.congress_copy
+        run: python -m alpaca.dual_class_pairs
 
       - name: Snapshot accounts
         continue-on-error: true
