@@ -16,8 +16,9 @@ const baseLayout = extra => Object.assign({
 /* ---------- tabs ---------- */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x.dataset.tab===name));
-  ["strategies","matrix","forward","analytics","anomaly","macro","news","congress","pairs","live","signals","lab"].forEach(v=>
+  ["strategies","matrix","forward","leaderboard","analytics","anomaly","macro","news","congress","pairs","live","signals","lab"].forEach(v=>
     document.getElementById("view-"+v).classList.toggle("hidden", v!==name));
+  if(name==="leaderboard" && !window._lbLoaded){ loadLeaderboard(); window._lbLoaded=1; }
   if(name==="matrix" && !window._matrixLoaded){ loadMatrix(); window._matrixLoaded=1; }
   if(name==="forward" && !window._fwdLoaded){ loadForward(); window._fwdLoaded=1; }
   if(name==="analytics" && !window._anLoaded){ loadAnalytics(); window._anLoaded=1; }
@@ -31,6 +32,52 @@ function showTab(name){
   if(name==="lab" && !window._labLoaded){ loadLab(); window._labLoaded=1; }
 }
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>showTab(t.dataset.tab));
+
+/* ---------- leaderboard ---------- */
+async function loadLeaderboard(){
+  const body=document.getElementById("leaderboardBody");
+  let d;
+  try{ d=await (await fetch("/api/leaderboard")).json(); }
+  catch(e){ body.innerHTML=`<div class="loading">Error: ${e}</div>`; return; }
+  if(d && d.computing){ body.innerHTML=`<div class="loading">Building the leaderboard (first load computes it, then it caches)… auto-refreshing.</div>`; setTimeout(loadLeaderboard,8000); return; }
+  if(d.error){ body.innerHTML=`<div class="loading">${d.error}</div>`; return; }
+  const col=v=>v==null?"":v>=0?"var(--pos)":"var(--neg)";
+  const vc=v=>v==="robust"?"var(--pos)":v==="inconclusive"?"var(--warn)":"var(--neg)";
+  const dpct=v=>v==null?"–":(v*100).toFixed(1)+"%";
+  const lt=d.long_term.map((x,i)=>`<tr class="lb-row" data-strat="${x.strategy_id}" data-asset="${x.asset}" style="cursor:pointer">
+     <td class="cell num muted">${i+1}</td>
+     <td class="rowhead" style="min-width:250px">${x.strategy} · <b>${x.asset}</b></td>
+     <td class="cell num" style="color:${col(x.cagr)}">${x.cagr}%</td>
+     <td class="cell num" style="color:${col(x.sharpe)}">${x.sharpe}</td>
+     <td class="cell num">${x.sortino}</td>
+     <td class="cell num" style="color:${vc(x.verdict)}">${dpct(x.dsr)}</td>
+     <td class="cell" style="color:${vc(x.verdict)};font-size:11px">${x.verdict}</td>
+     <td class="cell num" style="color:var(--gold)">${x.score}</td></tr>`).join("");
+  const st=d.short_term.map((x,i)=>`<tr class="lb-row" data-strat="${x.strategy_id}" data-asset="${x.asset}" style="cursor:pointer">
+     <td class="cell num muted">${i+1}</td>
+     <td class="rowhead" style="min-width:250px">${x.strategy} · <b>${x.asset}</b></td>
+     <td class="cell num" style="color:${col(x.return)}">${x.return}%</td>
+     <td class="cell num" style="color:${col(x.sharpe)}">${x.sharpe}</td>
+     <td class="cell num">${x.sortino}</td>
+     <td class="cell num" style="color:var(--neg)">${x.max_dd}%</td>
+     <td class="cell num muted">${x.days}</td></tr>`).join("");
+  body.innerHTML=`
+   <div class="card" style="margin-bottom:18px">
+     <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap"><h3>Long-Term Profits · Top 20</h3>
+       <span class="muted" style="font-size:12px">Full-history backtest · ranked by CAGR × DSR (profit × robustness) · <span style="color:var(--warn)">IN-SAMPLE</span></span></div>
+     <div class="matrix-wrap"><table class="mtx" style="font-size:12.5px"><thead><tr>
+       <th class="rowhead corner">#</th><th class="rowhead">Strategy · Asset</th><th>CAGR</th><th>Sharpe</th><th>Sortino</th><th>DSR</th><th>Verdict</th><th>Score</th></tr></thead><tbody>${lt}</tbody></table></div>
+   </div>
+   <div class="card">
+     <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap"><h3>Short-Term Profits · Top 20</h3>
+       <span class="muted" style="font-size:12px">Forward test · ${d.forward_days} out-of-sample days since ${d.forward_start} · <span style="color:var(--pos)">REAL</span>, small sample</span></div>
+     <div class="matrix-wrap"><table class="mtx" style="font-size:12.5px"><thead><tr>
+       <th class="rowhead corner">#</th><th class="rowhead">Strategy · Asset</th><th>Return</th><th>Sharpe</th><th>Sortino</th><th>Max DD</th><th>Days</th></tr></thead><tbody>${st}</tbody></table></div>
+   </div>`;
+  body.querySelectorAll("tr.lb-row").forEach(tr=>tr.onclick=()=>{
+    if(tr.dataset.asset && tr.dataset.asset!=="undefined" && typeof openStrategy==="function") openStrategy(tr.dataset.strat, tr.dataset.asset);
+  });
+}
 
 /* ---------- strategies ---------- */
 const METRICS = [

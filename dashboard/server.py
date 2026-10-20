@@ -122,6 +122,14 @@ def api_forward_test():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/leaderboard")
+def api_leaderboard():
+    try:
+        return jsonify(compute.leaderboard_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/forward_track")
 def api_forward_track():
     try:

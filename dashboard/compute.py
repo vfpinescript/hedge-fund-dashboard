@@ -6,6 +6,7 @@ cached in-process so the UI stays snappy.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -97,7 +98,8 @@ import subprocess as _subprocess
 import time as _time
 
 _ROOT = Path(__file__).resolve().parents[1]
-_GRID_FILES = {"matrix": "_grid_matrix.json", "forward": "_grid_forward.json"}
+_GRID_FILES = {"matrix": "_grid_matrix.json", "forward": "_grid_forward.json",
+               "leaderboard": "_grid_leaderboard.json"}
 _GRID_PROC: dict = {}
 
 
@@ -149,6 +151,10 @@ def matrix_status():
 
 def forward_status():
     return _grid_status("forward")
+
+
+def leaderboard_status():
+    return _grid_status("leaderboard")
 
 
 def _safe_sharpe(r, ann=np.sqrt(252), floor=1e-7, cap=50.0):
@@ -1072,6 +1078,70 @@ def strategy_matrix():
     return out
 
 
+def leaderboard(top_n=20):
+    """Two ranked tables of the best strategy+asset combinations:
+      - long_term : full-history performance, ranked by CAGR x DSR (profit
+        weighted by robustness, so overfit high-CAGR cells don't top it).
+        Drawn from the Strategy Matrix plus the portfolio composites.
+      - short_term: recent out-of-sample performance since the forward tracking
+        start, ranked by forward return. Drawn from the Forward Test.
+    Cached."""
+    if "leaderboard" in _CACHE:
+        return _CACHE["leaderboard"]
+    from quant.research.strategy_library import (
+        STRATEGIES, run_strategy, COMPOSITE_ASSET)
+
+    def _finite(*vals):
+        return all(v is not None and isinstance(v, (int, float))
+                   and math.isfinite(v) for v in vals)
+
+    mat = strategy_matrix()
+    names = {s["id"]: s["name"] for s in mat["strategies"]}
+    rows = []
+    for row in mat["rows"]:
+        for sid, c in row["cells"].items():
+            if not c or not _finite(c.get("dsr"), c.get("sharpe"), c.get("cagr")):
+                continue
+            rows.append({"strategy": names.get(sid, sid), "strategy_id": sid,
+                         "asset": row["asset"], "cagr": c.get("cagr"),
+                         "total_return": c.get("total_return"), "sharpe": c.get("sharpe"),
+                         "sortino": c.get("sortino"), "dsr": c.get("dsr"),
+                         "verdict": c.get("verdict")})
+    # add the portfolio composites (not in the per-asset grid)
+    for sid, spec in STRATEGIES.items():
+        if spec.get("mode") != "composite":
+            continue
+        try:
+            r = run_strategy(sid, COMPOSITE_ASSET)
+        except Exception:
+            continue
+        if "error" in r:
+            continue
+        m = r["metrics"]
+        rows.append({"strategy": spec["name"], "strategy_id": sid,
+                     "asset": COMPOSITE_ASSET,
+                     "cagr": round(m.get("cagr", 0) * 100, 1),
+                     "total_return": round(m.get("total_return", 0) * 100, 1),
+                     "sharpe": round(m.get("sharpe", 0), 2),
+                     "sortino": round(m.get("sortino", 0), 2),
+                     "dsr": r.get("dsr"), "verdict": r.get("dsr_verdict")})
+    for x in rows:
+        # profit weighted by robustness; DSR clipped at 0 so negatives don't flip sign
+        x["score"] = round((x["cagr"] or 0) * max(0.0, x["dsr"] or 0), 1)
+    long_term = sorted(rows, key=lambda x: -(x["score"] or -1e9))[:top_n]
+
+    fwd = forward_test()
+    fwd_rows = [r for r in fwd.get("rows", []) if r.get("return") is not None]
+    short_term = sorted(fwd_rows, key=lambda r: -(r["return"] if r["return"] is not None else -1e9))[:top_n]
+
+    out = {"long_term": long_term, "short_term": short_term,
+           "forward_start": fwd.get("start"),
+           "forward_days": (fwd["rows"][0]["days"] if fwd.get("rows") else 0),
+           "as_of": pd.Timestamp.utcnow().strftime("%Y-%m-%d")}
+    _CACHE["leaderboard"] = out
+    return out
+
+
 def kalshi_scan():
     if "kalshi" in _CACHE:
         return _CACHE["kalshi"]
@@ -1091,7 +1161,7 @@ if os.environ.get("DASHBOARD_PREWARM", "1") != "0" and (
         "gunicorn" in sys.modules
         or os.environ.get("SERVER_SOFTWARE", "").startswith("gunicorn")
         or any("gunicorn" in a for a in sys.argv)):
-    if _grid_from_disk("matrix") is None or _grid_from_disk("forward") is None:
+    if any(_grid_from_disk(k) is None for k in ("matrix", "forward", "leaderboard")):
         try:
             _spawn_grid_warm()
         except Exception:

@@ -22,7 +22,8 @@ sys.path.insert(0, str(ROOT))
 from dashboard import compute  # noqa: E402
 
 CACHE = ROOT / "data_cache"
-FILES = {"matrix": "_grid_matrix.json", "forward": "_grid_forward.json"}
+FILES = {"matrix": "_grid_matrix.json", "forward": "_grid_forward.json",
+         "leaderboard": "_grid_leaderboard.json"}
 
 
 def _json_safe(o):
@@ -48,3 +49,4 @@ def _write(key, data):
 if __name__ == "__main__":
     _write("matrix", compute.strategy_matrix())
     _write("forward", compute.forward_test())
+    _write("leaderboard", compute.leaderboard())   # reuses the two above from cache

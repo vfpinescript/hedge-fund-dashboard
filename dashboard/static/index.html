@@ -35,6 +35,8 @@
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M6 2v12M10 2v12M2 6h12M2 10h12"/></svg>Strategy Matrix</button>
       <button class="tab" data-tab="forward">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 13l4-5 3 3 5-7"/><path d="M11 4h3v3"/></svg>Forward Test</button>
+      <button class="tab" data-tab="leaderboard">
+        <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 14V7M8 14V3M12 14v-4"/><path d="M2 14h12"/></svg>Leaderboard</button>
       <button class="tab" data-tab="analytics">
         <svg class="ti" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 14V2M2 14h12"/><path d="M4 11c3-6 5 2 8-5"/><path d="M4 8c2-3 4 1 6-2" opacity=".5"/></svg>Analytics</button>
       <button class="tab" data-tab="anomaly">
@@ -114,6 +116,17 @@
         </div>
         <div id="compositeTrack"></div>
         <div id="forwardBody"><div class="loading">Computing out-of-sample performance for every combination…</div></div>
+      </section>
+
+      <!-- LEADERBOARD -->
+      <section class="view hidden" id="view-leaderboard">
+        <div class="signals-head">
+          <div>
+            <h2>Leaderboard <span class="badge-real">TOP 20</span></h2>
+            <p>The best strategy and asset combinations. <b>Long-Term</b> ranks the full-history backtests by profit weighted by robustness (CAGR x DSR), so an overfit high-return cell cannot top a proven one. <b>Short-Term</b> ranks the live forward test (out-of-sample since the tracking start) by recent return. Long-term is backtest, so treat it as a hypothesis; short-term is real but small-sample.</p>
+          </div>
+        </div>
+        <div id="leaderboardBody"><div class="loading">Computing the leaderboard…</div></div>
       </section>
 
       <!-- ANALYTICS -->
