@@ -897,8 +897,11 @@ def analytics(strategy_id, instrument, horizon=252, n_paths=2000):
 # delisted tickers that stalled on slow data retries), so the grids never
 # finished and showed a perpetual "computing". A focused liquid set keeps the
 # scan fast and the picker's full universe is unaffected (Backtest still lists
-# every instrument). MATRIX_BARS caps the lookback: a scan needs ~10y, not 24.
-MATRIX_BARS = 2500
+# every instrument). MATRIX_BARS MUST match run_strategy's default (6000) so a
+# matrix cell shows the SAME DSR/Sharpe/CAGR as the Backtest page for that
+# strategy+asset; a shorter window here made the two views disagree. The heavier
+# compute is absorbed by the precompute subprocess, which caches the grid to disk.
+MATRIX_BARS = 6000
 
 _MATRIX_UNIVERSE = [
     # mega/large-cap equities
